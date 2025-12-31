@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apollo Ascent & Docking Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 2px solid #444;
+        }
+        canvas {
+            display: block;
+            background-color: #0b0b15; /* Dark space background */
+        }
+        #ui-layer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            pointer-events: none;
+            text-shadow: 1px 1px 0 #000;
+        }
+        .stat-line {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        #message-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border: 1px solid white;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; color: #ffd700; }
+        p { margin: 5px 0; }
+        .instructions { font-size: 12px; color: #aaa; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    
+    <div id="ui-layer">
+        <div class="stat-line">Altitude: <span id="altitude">0</span> m</div>
+        <div class="stat-line">Vertical Vel: <span id="v-vel">0.0</span> m/s</div>
+        <div class="stat-line">Horizontal Vel: <span id="h-vel">0.0</span> m/s</div>
+        <div class="stat-line">Fuel: <span id="fuel">100</span>%</div>
+    </div>
+
+    <div id="message-overlay">
+        <h1 id="msg-title">Mission Status</h1>
+        <p id="msg-detail">Details here</p>
+        <p class="instructions">Press SPACE to Restart</p>
+    </div>
+</div>
+
+<script>
+/**
+ * Apollo Ascent & Docking Simulator
+ * 
+ * Physics Model:
+ * - Gravity: Constant downward acceleration of 1.62 m/s² (scaled for gameplay).
+ * - Inertia: Newtons First Law. Objects keep moving unless acted upon by a force.
+ * - Thrust: Adds acceleration vectors to velocity. Main engine is stronger than RCS.
+ * - Screen Wrap: Horizontal position wraps around 0-800 to simulate orbit.
+ */
+
+// Configuration
+const GRAVITY = 0.05;         // Downward acceleration per frame (approx 1.62 simulated scaled)
+const MAIN_THRUST = 0.15;     // Up arrow force
+const RCS_THRUST = 0.05;      // RCS force (Left/Right/Down)
+const FUEL_MAIN_COST = 0.5;   // Fuel cost per frame for main engine
+const FUEL_RCS_COST = 0.1;    // Fuel cost per frame for RCS
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const GROUND_Y = 550;         // Surface level
+const CSM_ORBIT_Y = 100;      // Height of CSM orbit
+const CSM_SPEED = 1.0;        // Constant orbital speed of CSM
+
+// Game State
+let gameState = 'playing'; // playing, won, lost
+let keys = {};
+
+// Canvas Setup
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// UI Elements
+const uiAltitude = document.getElementById('altitude');
+const uiVVel = document.getElementById('v-vel');
+const uiHVel = document.getElementById('h-vel');
+const uiFuel = document.getElementById('fuel');
+const msgOverlay = document.getElementById('message-overlay');
+const msgTitle = document.getElementById('msg-title');
+const msgDetail = document.getElementById('msg-detail');
+
+// Input Handling
+window.addEventListener('keydown', (e) => {
+    keys[e.key] = true;
+    if (e.code === 'Space' && gameState !== 'playing') {
+        resetGame();
+    }
+});
+window.addEventListener('keyup', (e) => {
+    keys[e.key] = false;
+});
+
+// Particles System (for exhaust)
+const particles = [];
+class Particle {
+    constructor(x, y, vx, vy, life, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.life = life;
+        this.color = color;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+    }
+    draw(ctx) {
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.life / 30;
+        ctx.fillRect(this.x, this.y, 2, 2);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+function spawnExhaust(x, y, direction) {
+    // direction: 'down' (main), 'up' (rcs-down), 'left' (rcs-right), 'right' (rcs-left)
+    for(let i=0; i<3; i++) {
+        let vx = (Math.random() - 0.5) * 1;
+        let vy = (Math.random() - 0.5) * 1;
+        let color = '#ffaa00'; // orange
+        
+        if (direction === 'down') {
+            vy += 2; 
+            color = '#ffcc00'; // brighter for main
+        } else if (direction === 'up') vy -= 1;
+        else if (direction === 'left') vx -= 1;
+        else if (direction === 'right') vx += 1;
+
+        particles.push(new Particle(x, y, vx, vy, 20 + Math.random()*20, color));
+    }
+}
+
+// Apollo Lunar Module (Ascent Stage)
+const lm = {
+    x: CANVAS_WIDTH / 2,
+    y: GROUND_Y - 30, // Start on ground
+    vx: 0,
+    vy: 0,
+    width: 30,
+    height: 30,
+    fuel: 100,
+    
+    update: function() {
+        if (gameState !== 'playing') return;
+
+        // Gravity
+        this.vy += GRAVITY;
+
+        // Apply Thrust
+        let isThrusting = false;
+
+        if (this.fuel > 0) {
+            // Main Engine (Up Arrow -> Force Up)
+            if (keys['ArrowUp']) {
+                this.vy -= MAIN_THRUST;
+                this.fuel -= FUEL_MAIN_COST;
+                spawnExhaust(this.x, this.y + this.height/2, 'down');
+            }
+            // RCS Down (Down Arrow -> Force Down)
+            if (keys['ArrowDown']) {
+                this.vy += RCS_THRUST;
+                this.fuel -= FUEL_RCS_COST;
+                spawnExhaust(this.x, this.y - this.height/2, 'up'); // Thrusters on top pushing down
+            }
+            // RCS Left (Left Arrow -> Force Left)
+            if (keys['ArrowLeft']) {
+                this.vx -= RCS_THRUST;
+                this.fuel -= FUEL_RCS_COST;
+                spawnExhaust(this.x + this.width/2, this.y, 'right'); // Thrusters on right pushing left
+            }
+            // RCS Right (Right Arrow -> Force Right)
+            if (keys['ArrowRight']) {
+                this.vx += RCS_THRUST;
+                this.fuel -= FUEL_RCS_COST;
+                spawnExhaust(this.x - this.width/2, this.y, 'left'); // Thrusters on left pushing right
+            }
+        } else {
+            if (this.fuel < 0) this.fuel = 0;
+        }
+
+        // Apply movement
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Screen Wrap
+        if (this.x > CANVAS_WIDTH) this.x = 0;
+        if (this.x < 0) this.x = CANVAS_WIDTH;
+
+        // Ground Collision
+        if (this.y + this.height/2 >= GROUND_Y) {
+            // Check impact speed
+            if (this.vy > 2.0) {
+                endGame(false, "Crashed into lunar surface!");
+            } else {
+                // Landed safely (or waiting to launch)
+                this.y = GROUND_Y - this.height/2;
+                this.vy = 0;
+                this.vx *= 0.9; // Friction
+            }
+        }
+        
+        // Ceiling ceiling (optional, just bounce or ignore)
+        if (this.y < 0) {
+           // this.y = 0; this.vy = 0; // Let them float high if they want
+        }
+
+        // Fuel Check
+        if (this.fuel <= 0 && Math.abs(this.vy) < 0.1 && Math.abs(this.vx) < 0.1 && this.y >= GROUND_Y - 40) {
+            // Out of fuel but safe on ground? technically failure to dock
+        } else if (this.fuel <= 0 && this.y < GROUND_Y - 50) {
+            // Drifting in space without fuel
+             // Let them drift until they crash or drift forever? 
+             // Logic: If out of fuel, you cannot control. You will eventually crash or miss dock.
+        }
+    },
+
+    draw: function(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // Draw LM (Simple Polygon - Ascent Stage Shape)
+        ctx.fillStyle = '#D4AF37'; // Gold
+        ctx.beginPath();
+        // Body
+        ctx.moveTo(-15, 15);
+        ctx.lineTo(15, 15);
+        ctx.lineTo(15, -5);
+        ctx.lineTo(10, -15);
+        ctx.lineTo(-10, -15);
+        ctx.lineTo(-15, -5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Stroke
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Window
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        ctx.moveTo(-5, -5);
+        ctx.lineTo(0, -10);
+        ctx.lineTo(5, -5);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    }
+};
+
+// CSM (Command/Service Module)
+const csm = {
+    x: 0,
+    y: CSM_ORBIT_Y,
+    width: 50,
+    height: 20,
+    
+    update: function() {
+        this.x += CSM_SPEED;
+        if (this.x > CANVAS_WIDTH) this.x = 0;
+    },
+
+    draw: function(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // Service Module (Cylinder)
+        ctx.fillStyle = '#ccc';
+        ctx.fillRect(-20, -10, 30, 20);
+        
+        // Command Module (Cone)
+        ctx.fillStyle = '#eee';
+        ctx.beginPath();
+        ctx.moveTo(10, -10);
+        ctx.lineTo(25, 0);
+        ctx.lineTo(10, 10);
+        ctx.closePath();
+        ctx.fill();
+
+        // Engine Bell
+        ctx.fillStyle = '#444';
+        ctx.beginPath();
+        ctx.moveTo(-20, -5);
+        ctx.lineTo(-28, -8);
+        ctx.lineTo(-28, 8);
+        ctx.lineTo(-20, 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
+    }
+};
+
+// Collision Detection Logic
+function checkCollisions() {
+    // Simple AABB collision for docking
+    // LM bounds
+    const lmLeft = lm.x - 15;
+    const lmRight = lm.x + 15;
+    const lmTop = lm.y - 15;
+    const lmBottom = lm.y + 15;
+
+    // CSM bounds (approximate)
+    const csmLeft = csm.x - 20;
+    const csmRight = csm.x + 25;
+    const csmTop = csm.y - 10;
+    const csmBottom = csm.y + 10;
+
+    // Check intersection
+    if (lmRight > csmLeft && lmLeft < csmRight && lmBottom > csmTop && lmTop < csmBottom) {
+        // Collision detected. Check Relative Velocity.
+        // Relative Velocity = LM Vel - CSM Vel
+        const relVx = Math.abs(lm.vx - CSM_SPEED);
+        const relVy = Math.abs(lm.vy); // CSM vy is 0
+
+        // Docking Threshold
+        if (relVx < 1.0 && relVy < 1.0) {
+            endGame(true, "Docking Successful!");
+        } else {
+            endGame(false, "Collision! Velocity too high.");
+        }
+    }
+}
+
+function endGame(success, message) {
+    gameState = success ? 'won' : 'lost';
+    msgTitle.innerText = success ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
+    msgTitle.style.color = success ? "#44ff44" : "#ff4444";
+    msgDetail.innerText = message;
+    if (success) {
+        msgDetail.innerText += `\nFuel Remaining: ${Math.floor(lm.fuel)}%`;
+    }
+    msgOverlay.style.display = 'block';
+}
+
+function resetGame() {
+    gameState = 'playing';
+    msgOverlay.style.display = 'none';
+    
+    // Reset LM
+    lm.x = CANVAS_WIDTH / 2;
+    lm.y = GROUND_Y - 30;
+    lm.vx = 0;
+    lm.vy = 0;
+    lm.fuel = 100;
+    
+    // Reset CSM
+    csm.x = 0;
+    
+    // Clear particles
+    particles.length = 0;
+
+    // Reset loop if needed handled by frame loop
+}
+
+function updateUI() {
+    uiAltitude.innerText = Math.max(0, Math.floor(GROUND_Y - (lm.y + 15))); // Distance from bottom of ship to ground
+    uiVVel.innerText = (-lm.vy * 10).toFixed(1); // Invert so positive is UP
+    uiHVel.innerText = (lm.vx * 10).toFixed(1);
+    uiFuel.innerText = Math.floor(lm.fuel);
+    
+    if (lm.fuel < 20) uiFuel.style.color = 'red';
+    else uiFuel.style.color = 'white';
+}
+
+// Background Stars
+const starList = [];
+for(let i=0; i<100; i++) {
+    starList.push({
+        x: Math.random() * CANVAS_WIDTH,
+        y: Math.random() * CANVAS_HEIGHT,
+        size: Math.random() * 2
+    });
+}
+
+function drawBackground() {
+    // Clear
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    // Draw Stars
+    ctx.fillStyle = 'white';
+    starList.forEach(star => {
+        ctx.fillRect(star.x, star.y, star.size, star.size);
+    });
+
+    // Draw Moon Surface
+    ctx.fillStyle = '#555';
+    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+    // Craters detail
+    ctx.fillStyle = '#444';
+    ctx.beginPath();
+    ctx.arc(100, GROUND_Y + 20, 30, 0, Math.PI*2);
+    ctx.arc(300, GROUND_Y + 40, 50, 0, Math.PI*2);
+    ctx.arc(600, GROUND_Y + 10, 20, 0, Math.PI*2);
+    ctx.fill();
+}
+
+// Game Loop
+function loop() {
+    if (gameState === 'playing') {
+        // Updates
+        lm.update();
+        csm.update();
+        checkCollisions();
+        
+        // Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update();
+            if (particles[i].life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    // Draw
+    drawBackground();
+    
+    // Draw Particles
+    particles.forEach(p => p.draw(ctx));
+
+    // Draw Objects
+    csm.draw(ctx);
+    lm.draw(ctx);
+
+    // Draw Ghost LM if wrapping (visual polish)
+    // If LM is near edges, draw a "ghost" on the other side?
+    // Not strictly required but helps with screen wrap logic visuals. 
+    // Implementing basic wrapper visualization
+    if (lm.x < 30) {
+        ctx.save();
+        ctx.translate(lm.x + CANVAS_WIDTH, lm.y);
+        lm.draw({save:()=>{}, translate:()=>{}, beginPath:()=>{}, moveTo:()=>{}, lineTo:()=>{}, closePath:()=>{}, fill:()=>{}, stroke:()=>{}, restore:()=>{}, fillRect:()=>{}, fillStyle: '#999'}); // Mock ctx or just recall lm.draw with offset
+        // Actually, cleaner to just manually re-call draw relative.
+        // Let's keep it simple for now as requested.
+        ctx.restore();
+    }
+
+    updateUI();
+
+    requestAnimationFrame(loop);
+}
+
+// Start
+loop();
+
+</script>
+</body>
+</html>
