@@ -119,8 +119,8 @@
         <div class="stat-line">Fuel: <span id="fuel">100</span>%</div>
         <div class="stat-line" style="margin-top: 10px; border-top: 1px solid #444; padding-top: 5px;">
             <div>Distance to CSM: <span id="distance-csm">-</span> m</div>
-            <div>Rel Vel X: <span id="rel-vx">0.0</span> m/s</div>
-            <div>Rel Vel Y: <span id="rel-vy">0.0</span> m/s</div>
+            <div>Rel Vel X: <span id="rel-vx">0.0</span> m/s <span id="vx-hint" style="font-size: 10px;"></span></div>
+            <div>Rel Vel Y: <span id="rel-vy">0.0</span> m/s <span id="vy-hint" style="font-size: 10px;"></span></div>
         </div>
     </div>
 
@@ -142,27 +142,31 @@
 
     <div id="tutorial-overlay">
         <h1>Apollo Docking Simulator</h1>
-        <div style="text-align: left; max-width: 400px; margin: 0 auto;">
+        <div style="text-align: left; max-width: 420px; margin: 0 auto;">
             <p><strong>Objective:</strong></p>
-            <p style="margin-left: 15px;">Dock with the CSM at low relative velocity</p>
+            <p style="margin-left: 15px;">Dock your Lunar Module (LM) with the orbiting Command Module (CSM)</p>
+
+            <p style="margin-top: 15px;"><strong>How to Dock:</strong></p>
+            <p style="margin-left: 15px;">
+                1. Fly UP to reach the <span style="color: #336699;">blue CSM ORBIT line</span><br>
+                2. Match CSM horizontal speed (press → until Rel Vel X is green)<br>
+                3. Approach the <span style="color: #00aaff;">flashing docking port</span> from BELOW<br>
+                4. Slow down (both velocities must be green to dock safely)
+            </p>
 
             <p style="margin-top: 15px;"><strong>Controls:</strong></p>
             <p style="margin-left: 15px;">
-                ↑ Main Engine (strong upward thrust)<br>
-                ↓ RCS Down<br>
-                ← RCS Left<br>
-                → RCS Right<br>
-                P / ESC - Pause<br>
-                ? - Toggle Help
+                ↑ Main Engine (thrust UP)<br>
+                ↓ Thrust DOWN (slow ascent)<br>
+                ← → Thrust LEFT/RIGHT (match CSM speed)<br>
+                P / ESC - Pause
             </p>
 
-            <p style="margin-top: 15px;"><strong>Tips:</strong></p>
+            <p style="margin-top: 15px;"><strong>Visual Guides:</strong></p>
             <p style="margin-left: 15px;">
-                • Match CSM orbital speed horizontally<br>
-                • Approach slowly from below<br>
-                • Watch fuel gauge - plan your burns<br>
-                • Green indicators = safe approach<br>
-                • Yellow = caution, Red = too fast
+                • <span style="color: #666;">Gray line</span> = your predicted trajectory<br>
+                • <span style="color: #00aaff;">Blue circle + arrow</span> = docking port location<br>
+                • <span style="color: #44ff44;">Green</span> = safe velocity | <span style="color: #ff4444;">Red</span> = too fast
             </p>
         </div>
         <p class="instructions" style="margin-top: 20px;">Press any key to start</p>
@@ -194,20 +198,20 @@
 // Physics Constants
 const GRAVITY = 0.05;         // Downward acceleration per frame (approx 1.62 simulated scaled)
 const MAIN_THRUST = 0.15;     // Up arrow force
-const RCS_THRUST = 0.05;      // RCS force (Left/Right/Down)
-const FUEL_MAIN_COST = 0.5;   // Fuel cost per frame for main engine
-const FUEL_RCS_COST = 0.1;    // Fuel cost per frame for RCS
+const RCS_THRUST = 0.08;      // RCS force (Left/Right/Down) - increased for better fine control
+const FUEL_MAIN_COST = 0.2;   // Fuel cost per frame for main engine (reduced for more forgiving gameplay)
+const FUEL_RCS_COST = 0.05;   // Fuel cost per frame for RCS (reduced for more forgiving gameplay)
 
 // Canvas & World Constants
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const GROUND_Y = 550;         // Surface level
 const CSM_ORBIT_Y = 100;      // Height of CSM orbit
-const CSM_SPEED = 1.0;        // Constant orbital speed of CSM
+const CSM_SPEED = 0.7;        // Constant orbital speed of CSM (reduced for easier matching)
 
 // Threshold Constants
-const DOCKING_VEL_THRESHOLD_X = 1.0;    // Max horizontal relative velocity for successful docking
-const DOCKING_VEL_THRESHOLD_Y = 1.0;    // Max vertical relative velocity for successful docking
+const DOCKING_VEL_THRESHOLD_X = 1.5;    // Max horizontal relative velocity for successful docking (increased)
+const DOCKING_VEL_THRESHOLD_Y = 1.5;    // Max vertical relative velocity for successful docking (increased)
 const CRASH_VEL_THRESHOLD = 2.0;        // Vertical velocity threshold for crash on landing
 const FUEL_WARNING_THRESHOLD = 20;      // Fuel percentage to display warning color
 const FUEL_CRITICAL_THRESHOLD = 10;     // Fuel percentage considered critical
@@ -221,10 +225,192 @@ const PARTICLE_MAX_LIFE = 40;           // Maximum particle lifespan in frames
 const PARTICLE_ALPHA_DIVISOR = 30;      // Alpha calculation divisor for particle fade
 const STAR_COUNT = 100;                 // Number of background stars
 const LM_GHOST_THRESHOLD = 30;          // Distance from edge to show ghost LM (screen wrap)
+const DOCKING_AIDS_RANGE = 400;         // Distance at which docking aids become visible
+const TRAJECTORY_PREDICTION_STEPS = 60; // Number of frames to predict trajectory
 
 // ===== Game State =====
 let gameState = 'playing'; // playing, paused, won, lost
 let keys = {};
+let gameStartTime = Date.now();
+let screenShake = 0;
+let celebrationParticles = [];
+
+// ===== Scoring System =====
+function calculateScore(fuelRemaining, timeElapsed, relVx, relVy) {
+    const fuelScore = Math.floor(fuelRemaining * 10);  // Max 1000
+    const timeBonus = Math.max(0, 500 - Math.floor(timeElapsed / 100)); // Faster = more points
+    const precisionBonus = Math.floor((2 - relVx - relVy) * 250); // Max 500 for perfect approach
+    return Math.max(0, fuelScore + timeBonus + precisionBonus);
+}
+
+// ===== Audio System (Web Audio API) =====
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+}
+
+function playSound(type) {
+    try {
+        const ctx = initAudio();
+        if (ctx.state === 'suspended') ctx.resume();
+        
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        const now = ctx.currentTime;
+        
+        switch(type) {
+            case 'thrust':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(80, now);
+                oscillator.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+                gainNode.gain.setValueAtTime(0.08, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+                
+            case 'rcs':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(200, now);
+                gainNode.gain.setValueAtTime(0.03, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                oscillator.start(now);
+                oscillator.stop(now + 0.05);
+                break;
+                
+            case 'dock_success':
+                // Play a nice chord
+                [523, 659, 784].forEach((freq, i) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now);
+                    gain.gain.setValueAtTime(0.15, now + i * 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8 + i * 0.1);
+                    osc.start(now + i * 0.1);
+                    osc.stop(now + 1 + i * 0.1);
+                });
+                return; // Don't use the main oscillator
+                
+            case 'collision':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, now);
+                oscillator.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+                gainNode.gain.setValueAtTime(0.3, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+                
+            case 'alarm':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(440, now);
+                oscillator.frequency.setValueAtTime(880, now + 0.15);
+                oscillator.frequency.setValueAtTime(440, now + 0.3);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.setValueAtTime(0.1, now + 0.3);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+                oscillator.start(now);
+                oscillator.stop(now + 0.45);
+                break;
+        }
+    } catch(e) {
+        // Audio not supported, fail silently
+    }
+}
+
+// Throttle thrust sounds
+let lastThrustSound = 0;
+let lastRcsSound = 0;
+let lastAlarmSound = 0;
+
+function playThrustSound() {
+    const now = Date.now();
+    if (now - lastThrustSound > 100) {
+        playSound('thrust');
+        lastThrustSound = now;
+    }
+}
+
+function playRcsSound() {
+    const now = Date.now();
+    if (now - lastRcsSound > 80) {
+        playSound('rcs');
+        lastRcsSound = now;
+    }
+}
+
+function playAlarmSound() {
+    const now = Date.now();
+    if (now - lastAlarmSound > 500) {
+        playSound('alarm');
+        lastAlarmSound = now;
+    }
+}
+
+// ===== Screen Shake =====
+function triggerScreenShake(intensity) {
+    screenShake = intensity;
+}
+
+function applyScreenShake() {
+    if (screenShake > 0) {
+        const shakeX = (Math.random() - 0.5) * screenShake;
+        const shakeY = (Math.random() - 0.5) * screenShake;
+        ctx.translate(shakeX, shakeY);
+        screenShake *= 0.9; // Decay
+        if (screenShake < 0.5) screenShake = 0;
+    }
+}
+
+// ===== Celebration Effects =====
+function spawnCelebration(x, y) {
+    const colors = ['#ff0', '#0f0', '#0ff', '#f0f', '#f90', '#fff'];
+    for (let i = 0; i < 50; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 4;
+        celebrationParticles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 60 + Math.random() * 40,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: 2 + Math.random() * 3
+        });
+    }
+}
+
+function updateCelebrationParticles() {
+    for (let i = celebrationParticles.length - 1; i >= 0; i--) {
+        const p = celebrationParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.05; // Gravity
+        p.life--;
+        if (p.life <= 0) celebrationParticles.splice(i, 1);
+    }
+}
+
+function drawCelebrationParticles() {
+    celebrationParticles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life / 60;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    });
+}
 
 // ===== Canvas Setup =====
 const canvas = document.getElementById('gameCanvas');
@@ -238,6 +424,8 @@ const uiFuel = document.getElementById('fuel');
 const uiDistanceCSM = document.getElementById('distance-csm');
 const uiRelVx = document.getElementById('rel-vx');
 const uiRelVy = document.getElementById('rel-vy');
+const uiVxHint = document.getElementById('vx-hint');
+const uiVyHint = document.getElementById('vy-hint');
 const msgOverlay = document.getElementById('message-overlay');
 const msgTitle = document.getElementById('msg-title');
 const msgDetail = document.getElementById('msg-detail');
@@ -411,7 +599,7 @@ function drawCSMAtPosition(ctx, x, y) {
     ctx.fillStyle = '#ccc';
     ctx.fillRect(-20, -10, 30, 20);
 
-    // Command Module (Cone)
+    // Command Module (Cone) - pointing right (direction of travel)
     ctx.fillStyle = '#eee';
     ctx.beginPath();
     ctx.moveTo(10, -10);
@@ -420,7 +608,7 @@ function drawCSMAtPosition(ctx, x, y) {
     ctx.closePath();
     ctx.fill();
 
-    // Engine Bell
+    // Engine Bell (back/left side)
     ctx.fillStyle = '#444';
     ctx.beginPath();
     ctx.moveTo(-20, -5);
@@ -430,6 +618,57 @@ function drawCSMAtPosition(ctx, x, y) {
     ctx.closePath();
     ctx.fill();
 
+    // DOCKING PORT - clearly marked on top of CSM
+    // Draw docking port collar (this is where LM connects!)
+    ctx.fillStyle = '#888';
+    ctx.fillRect(-5, -15, 10, 5);  // Docking collar on top
+    
+    // Docking port opening
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-3, -14, 6, 3);
+
+    ctx.restore();
+}
+
+/**
+ * Draw docking target indicator on CSM
+ */
+function drawDockingTarget(x, y, isAligned) {
+    const flashRate = Math.sin(Date.now() / 200) * 0.5 + 0.5;
+    
+    ctx.save();
+    ctx.translate(x, y);
+    
+    // Draw approach guide - shows LM should come from BELOW
+    if (isAligned) {
+        ctx.strokeStyle = '#44ff44';
+        ctx.fillStyle = '#44ff44';
+    } else {
+        ctx.strokeStyle = '#00aaff';
+        ctx.fillStyle = '#00aaff';
+    }
+    
+    ctx.globalAlpha = 0.4 + flashRate * 0.4;
+    ctx.lineWidth = 2;
+    
+    // Arrow pointing DOWN showing "approach from here"
+    ctx.beginPath();
+    ctx.moveTo(0, -20);  // Top of docking port
+    ctx.lineTo(0, -40);  // Line going up (LM approaches from below)
+    ctx.stroke();
+    
+    // Arrowhead pointing down toward docking port
+    ctx.beginPath();
+    ctx.moveTo(-6, -28);
+    ctx.lineTo(0, -20);
+    ctx.lineTo(6, -28);
+    ctx.stroke();
+    
+    // "DOCK HERE" circle around docking port
+    ctx.beginPath();
+    ctx.arc(0, -12, 12, 0, Math.PI * 2);
+    ctx.stroke();
+    
     ctx.restore();
 }
 
@@ -460,27 +699,36 @@ const lm = {
                 this.vy -= MAIN_THRUST;
                 this.fuel -= FUEL_MAIN_COST;
                 spawnExhaust(this.x, this.y + this.height/2, 'down');
+                playThrustSound();
             }
             // RCS Down (Down Arrow -> Force Down)
             if (keys['ArrowDown']) {
                 this.vy += RCS_THRUST;
                 this.fuel -= FUEL_RCS_COST;
-                spawnExhaust(this.x, this.y - this.height/2, 'up'); // Thrusters on top pushing down
+                spawnExhaust(this.x, this.y - this.height/2, 'up');
+                playRcsSound();
             }
             // RCS Left (Left Arrow -> Force Left)
             if (keys['ArrowLeft']) {
                 this.vx -= RCS_THRUST;
                 this.fuel -= FUEL_RCS_COST;
-                spawnExhaust(this.x + this.width/2, this.y, 'right'); // Thrusters on right pushing left
+                spawnExhaust(this.x + this.width/2, this.y, 'right');
+                playRcsSound();
             }
             // RCS Right (Right Arrow -> Force Right)
             if (keys['ArrowRight']) {
                 this.vx += RCS_THRUST;
                 this.fuel -= FUEL_RCS_COST;
-                spawnExhaust(this.x - this.width/2, this.y, 'left'); // Thrusters on left pushing right
+                spawnExhaust(this.x - this.width/2, this.y, 'left');
+                playRcsSound();
             }
         } else {
             if (this.fuel < 0) this.fuel = 0;
+        }
+        
+        // Low fuel alarm
+        if (this.fuel > 0 && this.fuel < FUEL_WARNING_THRESHOLD) {
+            playAlarmSound();
         }
 
         // Apply movement
@@ -543,32 +791,46 @@ const csm = {
  * Check for collisions between LM and CSM for docking
  */
 function checkCollisions() {
-    // Simple AABB collision for docking
+    // Docking detection - LM must approach from BELOW the CSM's docking port (top of CSM)
     // LM bounds
     const lmLeft = lm.x - 15;
     const lmRight = lm.x + 15;
     const lmTop = lm.y - 15;
     const lmBottom = lm.y + 15;
 
-    // CSM bounds (approximate)
+    // CSM docking port zone (top of CSM, centered horizontally)
+    // Docking port is at CSM top, slightly larger zone for easier docking
+    const dockingZoneLeft = csm.x - 15;
+    const dockingZoneRight = csm.x + 15;
+    const dockingZoneTop = csm.y - 25;  // Extended above CSM
+    const dockingZoneBottom = csm.y - 5; // Top portion of CSM
+
+    // Check if LM is in docking zone (approaching from below)
+    const inDockingZone = (lmRight > dockingZoneLeft && lmLeft < dockingZoneRight && 
+                          lmBottom > dockingZoneTop && lmTop < dockingZoneBottom);
+
+    // General CSM collision bounds (for crash detection)
     const csmLeft = csm.x - 20;
     const csmRight = csm.x + 25;
     const csmTop = csm.y - 10;
     const csmBottom = csm.y + 10;
+    
+    const generalCollision = (lmRight > csmLeft && lmLeft < csmRight && 
+                             lmBottom > csmTop && lmTop < csmBottom);
 
-    // Check intersection
-    if (lmRight > csmLeft && lmLeft < csmRight && lmBottom > csmTop && lmTop < csmBottom) {
-        // Collision detected. Check Relative Velocity.
-        // Relative Velocity = LM Vel - CSM Vel
+    if (inDockingZone) {
+        // In docking zone - check velocity
         const relVx = Math.abs(lm.vx - CSM_SPEED);
-        const relVy = Math.abs(lm.vy); // CSM vy is 0
+        const relVy = Math.abs(lm.vy);
 
-        // Docking Threshold
         if (relVx < DOCKING_VEL_THRESHOLD_X && relVy < DOCKING_VEL_THRESHOLD_Y) {
             endGame(true, "Docking Successful!");
         } else {
-            endGame(false, "Collision! Velocity too high.");
+            endGame(false, "Docking failed! Approach velocity too high.\nTip: Match CSM speed (→) and slow your vertical velocity.");
         }
+    } else if (generalCollision) {
+        // Hit CSM but not in docking zone
+        endGame(false, "Collision! Wrong approach angle.\nTip: Approach the docking port from BELOW the CSM.");
     }
 }
 
@@ -622,9 +884,27 @@ function endGame(success, message) {
     msgTitle.innerText = success ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
     msgTitle.style.color = success ? "#44ff44" : "#ff4444";
     msgDetail.innerText = message;
+    
     if (success) {
-        msgDetail.innerText += `\nFuel Remaining: ${Math.floor(lm.fuel)}%`;
+        // Calculate and display score
+        const timeElapsed = Date.now() - gameStartTime;
+        const relVx = Math.abs(lm.vx - CSM_SPEED);
+        const relVy = Math.abs(lm.vy);
+        const score = calculateScore(lm.fuel, timeElapsed, relVx, relVy);
+        
+        msgDetail.innerText += `\n\nFuel Remaining: ${Math.floor(lm.fuel)}%`;
+        msgDetail.innerText += `\nTime: ${(timeElapsed / 1000).toFixed(1)}s`;
+        msgDetail.innerText += `\n\n⭐ SCORE: ${score}`;
+        
+        // Play success sound and celebration
+        playSound('dock_success');
+        spawnCelebration(lm.x, lm.y);
+    } else {
+        // Play collision sound and screen shake
+        playSound('collision');
+        triggerScreenShake(15);
     }
+    
     msgOverlay.style.display = 'block';
 }
 
@@ -633,6 +913,7 @@ function endGame(success, message) {
  */
 function resetGame() {
     gameState = 'playing';
+    gameStartTime = Date.now();
     msgOverlay.style.display = 'none';
     pauseOverlay.style.display = 'none';
 
@@ -648,8 +929,8 @@ function resetGame() {
 
     // Clear particles
     particles.length = 0;
-
-    // Reset loop if needed handled by frame loop
+    celebrationParticles.length = 0;
+    screenShake = 0;
 }
 
 /**
@@ -682,17 +963,36 @@ function updateUI() {
     const distance = Math.sqrt(dx * dx + dy * dy);
     uiDistanceCSM.innerText = Math.floor(distance);
 
-    // Calculate relative velocities
-    const relVx = Math.abs(lm.vx - CSM_SPEED);
-    const relVy = Math.abs(lm.vy); // CSM vy is 0
+    // Calculate relative velocities (actual values, not absolute)
+    const relVxRaw = lm.vx - CSM_SPEED;  // Negative = need to go right more
+    const relVx = Math.abs(relVxRaw);
+    const relVyRaw = lm.vy;  // Positive = going down, negative = going up
+    const relVy = Math.abs(relVyRaw);
 
     uiRelVx.innerText = (relVx * 10).toFixed(1);
     uiRelVy.innerText = (relVy * 10).toFixed(1);
+    
+    // Show hints for velocity correction
+    if (relVx > 0.5) {
+        uiVxHint.innerText = relVxRaw < 0 ? '(press →)' : '(press ←)';
+        uiVxHint.style.color = '#ffaa00';
+    } else {
+        uiVxHint.innerText = '✓';
+        uiVxHint.style.color = '#44ff44';
+    }
+    
+    if (relVy > 0.5) {
+        uiVyHint.innerText = relVyRaw > 0 ? '(press ↑)' : '(press ↓)';
+        uiVyHint.style.color = '#ffaa00';
+    } else {
+        uiVyHint.innerText = '✓';
+        uiVyHint.style.color = '#44ff44';
+    }
 
     // Color code based on approach status
     const statusColor = getApproachStatus(relVx, relVy);
-    uiRelVx.style.color = statusColor;
-    uiRelVy.style.color = statusColor;
+    uiRelVx.style.color = relVx < 0.5 ? '#44ff44' : (relVx < DOCKING_VEL_THRESHOLD_X ? '#ffff44' : '#ff4444');
+    uiRelVy.style.color = relVy < 0.5 ? '#44ff44' : (relVy < DOCKING_VEL_THRESHOLD_Y ? '#ffff44' : '#ff4444');
 
     // Fuel warning
     if (lm.fuel < FUEL_WARNING_THRESHOLD) uiFuel.style.color = 'red';
@@ -748,7 +1048,7 @@ function isCSMOffScreen() {
 }
 
 /**
- * Draw CSM position indicator when off-screen
+ * Draw CSM position indicator (always show distance, arrow when off-screen)
  */
 function drawCSMIndicator() {
     // Calculate horizontal distance considering screen wrap
@@ -757,50 +1057,85 @@ function drawCSMIndicator() {
     if (Math.abs(dx) > CANVAS_WIDTH / 2) {
         dx = dx > 0 ? dx - CANVAS_WIDTH : dx + CANVAS_WIDTH;
     }
-    const distance = Math.abs(dx);
+    const dy = csm.y - lm.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
 
+    // Determine if CSM is off-screen horizontally
+    const isOffScreen = csm.x < 0 || csm.x > CANVAS_WIDTH;
+    
     // Determine direction
     const isLeft = dx < 0;
 
-    // Position arrow at screen edge
-    const arrowX = isLeft ? 20 : CANVAS_WIDTH - 20;
-    const arrowY = 80;
-
-    // Draw arrow
+    // Always show distance indicator at top of screen
     ctx.save();
     ctx.fillStyle = distance < 150 ? '#44ff44' : '#aaaaaa';
-    ctx.strokeStyle = ctx.fillStyle;
-    ctx.lineWidth = 2;
-
-    // Pulsing effect when close
-    if (distance < 100) {
-        const pulse = Math.sin(Date.now() / 200) * 0.2 + 0.8;
-        ctx.globalAlpha = pulse;
-    }
-
-    // Arrow shape
-    ctx.beginPath();
-    if (isLeft) {
-        // Left pointing arrow
-        ctx.moveTo(arrowX + 10, arrowY);
-        ctx.lineTo(arrowX, arrowY - 8);
-        ctx.lineTo(arrowX, arrowY + 8);
-    } else {
-        // Right pointing arrow
-        ctx.moveTo(arrowX - 10, arrowY);
-        ctx.lineTo(arrowX, arrowY - 8);
-        ctx.lineTo(arrowX, arrowY + 8);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    // Distance text
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.font = '10px "Courier New"';
+    ctx.font = '12px "Courier New"';
     ctx.textAlign = 'center';
-    ctx.fillText(`CSM ${Math.floor(distance)}m`, arrowX, arrowY + 20);
-
+    ctx.globalAlpha = 0.8;
+    
+    // Show distance at top center
+    const distText = `CSM: ${Math.floor(distance)}m`;
+    ctx.fillText(distText, CANVAS_WIDTH / 2, 20);
+    
+    // Draw direction arrow if CSM is far
+    if (Math.abs(dx) > 100) {
+        const arrowX = CANVAS_WIDTH / 2 + (isLeft ? -50 : 50);
+        ctx.beginPath();
+        if (isLeft) {
+            ctx.moveTo(arrowX + 8, 17);
+            ctx.lineTo(arrowX, 17);
+            ctx.lineTo(arrowX + 4, 13);
+            ctx.moveTo(arrowX, 17);
+            ctx.lineTo(arrowX + 4, 21);
+        } else {
+            ctx.moveTo(arrowX - 8, 17);
+            ctx.lineTo(arrowX, 17);
+            ctx.lineTo(arrowX - 4, 13);
+            ctx.moveTo(arrowX, 17);
+            ctx.lineTo(arrowX - 4, 21);
+        }
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
     ctx.restore();
+
+    // Draw edge arrow when CSM is off-screen
+    if (isOffScreen || Math.abs(dx) > CANVAS_WIDTH / 3) {
+        // Position arrow at screen edge
+        const arrowX = isLeft ? 20 : CANVAS_WIDTH - 20;
+        const arrowY = 80;
+
+        // Draw arrow
+        ctx.save();
+        ctx.fillStyle = distance < 150 ? '#44ff44' : '#aaaaaa';
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 2;
+
+        // Pulsing effect when close
+        if (distance < 100) {
+            const pulse = Math.sin(Date.now() / 200) * 0.2 + 0.8;
+            ctx.globalAlpha = pulse;
+        }
+
+        // Arrow shape
+        ctx.beginPath();
+        if (isLeft) {
+            // Left pointing arrow
+            ctx.moveTo(arrowX + 10, arrowY);
+            ctx.lineTo(arrowX, arrowY - 8);
+            ctx.lineTo(arrowX, arrowY + 8);
+        } else {
+            // Right pointing arrow
+            ctx.moveTo(arrowX - 10, arrowY);
+            ctx.lineTo(arrowX, arrowY - 8);
+            ctx.lineTo(arrowX, arrowY + 8);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+    }
 }
 
 /**
@@ -811,15 +1146,57 @@ function drawDockingAids() {
     const dy = csm.y - lm.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Only show aids when within reasonable range
-    if (distance < 300) {
-        // Calculate relative velocities for color coding
-        const relVx = Math.abs(lm.vx - CSM_SPEED);
-        const relVy = Math.abs(lm.vy);
-        const statusColor = getApproachStatus(relVx, relVy);
+    // Draw CSM orbit altitude reference line (always visible)
+    ctx.save();
+    ctx.strokeStyle = '#336699';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.4;
+    ctx.setLineDash([10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(0, CSM_ORBIT_Y);
+    ctx.lineTo(CANVAS_WIDTH, CSM_ORBIT_Y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Label the orbit line
+    ctx.fillStyle = '#336699';
+    ctx.font = '10px "Courier New"';
+    ctx.globalAlpha = 0.6;
+    ctx.fillText('CSM ORBIT', CANVAS_WIDTH - 70, CSM_ORBIT_Y - 5);
+    ctx.restore();
 
-        // Draw dashed line from LM to CSM
-        if (distance < 200) {
+    // Draw trajectory prediction line
+    drawTrajectoryPrediction();
+
+    // Calculate relative velocities for color coding
+    const relVx = Math.abs(lm.vx - CSM_SPEED);
+    const relVy = Math.abs(lm.vy);
+    const statusColor = getApproachStatus(relVx, relVy);
+    const isAligned = (statusColor === '#44ff44');
+
+    // Always draw the docking target indicator on CSM (shows WHERE to dock)
+    drawDockingTarget(csm.x, csm.y, isAligned);
+
+    // Only show detailed aids when within reasonable range
+    if (distance < DOCKING_AIDS_RANGE) {
+        // Draw approach corridor - shows optimal path to docking port
+        ctx.save();
+        ctx.strokeStyle = isAligned ? '#44ff44' : '#00aaff';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.3;
+        ctx.setLineDash([5, 10]);
+        
+        // Draw corridor lines showing approach from below
+        ctx.beginPath();
+        ctx.moveTo(csm.x - 20, csm.y - 25);  // Left side of corridor at dock
+        ctx.lineTo(csm.x - 40, csm.y + 100); // Expand corridor below
+        ctx.moveTo(csm.x + 20, csm.y - 25);  // Right side of corridor at dock
+        ctx.lineTo(csm.x + 40, csm.y + 100); // Expand corridor below
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Draw dashed line from LM to docking port (not CSM center)
+        if (distance < 300) {
             ctx.save();
             ctx.strokeStyle = statusColor;
             ctx.lineWidth = 1;
@@ -827,39 +1204,72 @@ function drawDockingAids() {
             ctx.globalAlpha = 0.6;
             ctx.beginPath();
             ctx.moveTo(lm.x, lm.y);
-            ctx.lineTo(csm.x, csm.y);
+            ctx.lineTo(csm.x, csm.y - 15);  // Point to docking port on top
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.restore();
         }
 
-        // Draw safe zone circles around CSM
+        // Draw safe zone around docking port (not whole CSM)
         ctx.save();
         ctx.strokeStyle = '#44ff44';
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.3;
-        // Inner safe zone (optimal docking range)
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        // Inner safe zone around docking port
         ctx.beginPath();
-        ctx.arc(csm.x, csm.y, 40, 0, Math.PI * 2);
+        ctx.arc(csm.x, csm.y - 15, 25, 0, Math.PI * 2);
         ctx.stroke();
         // Outer caution zone
         ctx.strokeStyle = '#ffff44';
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.3;
         ctx.beginPath();
-        ctx.arc(csm.x, csm.y, 80, 0, Math.PI * 2);
+        ctx.arc(csm.x, csm.y - 15, 50, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
-
-        // Highlight CSM docking port when approach is safe
-        if (statusColor === '#44ff44' && distance < 100) {
-            ctx.save();
-            ctx.fillStyle = '#44ff44';
-            ctx.globalAlpha = 0.5;
-            ctx.beginPath();
-            ctx.arc(csm.x + 20, csm.y, 8, 0, Math.PI * 2); // Docking port position
-            ctx.fill();
-            ctx.restore();
-        }
     }
+}
+
+/**
+ * Draw trajectory prediction showing where LM will go
+ */
+function drawTrajectoryPrediction() {
+    ctx.save();
+    ctx.strokeStyle = '#666666';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+    ctx.setLineDash([3, 6]);
+    
+    ctx.beginPath();
+    ctx.moveTo(lm.x, lm.y);
+    
+    // Simulate future positions
+    let predX = lm.x;
+    let predY = lm.y;
+    let predVx = lm.vx;
+    let predVy = lm.vy;
+    
+    for (let i = 0; i < TRAJECTORY_PREDICTION_STEPS; i++) {
+        predVy += GRAVITY;
+        predX += predVx;
+        predY += predVy;
+        
+        // Screen wrap prediction
+        if (predX > CANVAS_WIDTH) predX -= CANVAS_WIDTH;
+        if (predX < 0) predX += CANVAS_WIDTH;
+        
+        // Stop at ground
+        if (predY > GROUND_Y) {
+            ctx.lineTo(predX, GROUND_Y);
+            break;
+        }
+        
+        ctx.lineTo(predX, predY);
+    }
+    
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
 }
 
 // ===== Game Loop =====
@@ -880,6 +1290,13 @@ function loop() {
             if (particles[i].life <= 0) particles.splice(i, 1);
         }
     }
+    
+    // Update celebration particles even when not playing
+    updateCelebrationParticles();
+
+    // Draw with screen shake
+    ctx.save();
+    applyScreenShake();
 
     // Draw
     drawBackground();
@@ -904,6 +1321,12 @@ function loop() {
     } else if (lm.x > CANVAS_WIDTH - LM_GHOST_THRESHOLD) {
         drawLMAtPosition(ctx, lm.x - CANVAS_WIDTH, lm.y);
     }
+    
+    // Draw celebration particles on top
+    drawCelebrationParticles();
+    
+    // Restore from screen shake
+    ctx.restore();
 
     updateUI();
 

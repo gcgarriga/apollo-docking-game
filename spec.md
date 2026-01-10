@@ -13,7 +13,27 @@
 - Retro-aesthetic UI with real-time telemetry
 
 ### Current State
-Single HTML file (482 lines) with embedded CSS and vanilla JavaScript. Clean, educational codebase undergoing improvements to enhance gameplay, usability, and code quality.
+Single HTML file (~950 lines) with embedded CSS and vanilla JavaScript. Clean, educational codebase with enhanced visual guidance systems for improved playability.
+
+---
+
+## Recent Improvements (v2.1)
+
+### Visual Clarity Enhancements
+- **CSM Orbit Line**: Permanent dashed blue line showing target altitude
+- **Trajectory Prediction**: Gray dashed line showing where LM will travel based on current velocity
+- **Flashing Docking Port**: Blue/green indicator on CSM showing exact docking location
+- **Enhanced Safe Zones**: More visible circles around CSM (thicker lines, higher opacity)
+- **Always-Visible CSM Distance**: Distance to CSM shown at top of screen with directional arrows
+
+### Physics Tuning
+- **Reduced Fuel Consumption**: Main engine 0.5→0.2, RCS 0.1→0.05 per frame for more forgiving gameplay
+- **Improved RCS Control**: RCS thrust increased 0.05→0.08 for better fine maneuvering
+- **Extended Docking Aids Range**: Visual aids now appear at 400m instead of 200m
+
+### UI Improvements
+- **Target Velocity Display**: Shows the horizontal velocity needed to match CSM
+- **Updated Tutorial**: New tips explaining visual aids and docking strategy
 
 ---
 
@@ -339,11 +359,11 @@ apollo-docking-game/
 
 ### Thrust Systems
 - **Main Engine**: 0.15 units/frame upward force
-- **RCS Thrusters**: 0.05 units/frame directional force
+- **RCS Thrusters**: 0.08 units/frame directional force (improved for fine control)
 
 ### Fuel Consumption
-- Main Engine: 0.5% per frame
-- RCS Thrusters: 0.1% per frame
+- Main Engine: 0.2% per frame (balanced for gameplay)
+- RCS Thrusters: 0.05% per frame (balanced for gameplay)
 
 ### Docking Criteria
 - Relative horizontal velocity < 1.0 units/sec
@@ -394,7 +414,14 @@ apollo-docking-game/
 ## Version History
 
 - **v1.0** - Initial release (Dec 31, 2025)
-- **v2.0** - Planned improvements (8 milestones) - In Progress
+- **v2.0** - Planned improvements (8 milestones) - Completed
+- **v2.1** - Enhanced visual guidance and physics tuning (Jan 10, 2026)
+  - Added trajectory prediction line
+  - Added CSM orbit altitude reference line
+  - Added flashing docking port indicator
+  - Improved fuel economy and RCS control
+  - Enhanced safe zone visibility
+  - Always-visible CSM distance indicator
 
 ---
 
@@ -403,4 +430,4 @@ apollo-docking-game/
 Educational project demonstrating physics simulation and game development with vanilla JavaScript.
 
 **Created by:** gcgarriga
-**Last Updated:** January 4, 2026
+**Last Updated:** January 10, 2026
