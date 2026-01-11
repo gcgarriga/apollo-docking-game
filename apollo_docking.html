@@ -105,6 +105,119 @@
             top: 60px;
             right: 0;
         }
+
+        /* Achievement System Styles */
+        #achievement-notification {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background: linear-gradient(135deg, rgba(40, 40, 60, 0.95), rgba(20, 20, 40, 0.95));
+            border: 2px solid #ffd700;
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: none;
+            animation: slideIn 0.5s ease-out, glow 1.5s ease-in-out infinite;
+            max-width: 250px;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 10px rgba(255, 215, 0, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(255, 215, 0, 0.6); }
+        }
+        .achievement-header {
+            color: #ffd700;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        .achievement-title {
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        .achievement-desc {
+            color: #aaa;
+            font-size: 11px;
+        }
+
+        #trophy-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            border: 2px solid #ffd700;
+            border-radius: 10px;
+            padding: 20px;
+            display: none;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .trophy-title {
+            color: #ffd700;
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        .trophy-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .trophy-item {
+            background: rgba(40, 40, 60, 0.8);
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 10px;
+            transition: all 0.2s;
+        }
+        .trophy-item.unlocked {
+            border-color: #ffd700;
+            background: rgba(60, 60, 40, 0.8);
+        }
+        .trophy-item.locked {
+            opacity: 0.5;
+        }
+        .trophy-icon {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        .trophy-name {
+            color: #fff;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .trophy-item.locked .trophy-name {
+            color: #666;
+        }
+        .trophy-description {
+            color: #888;
+            font-size: 10px;
+            margin-top: 3px;
+        }
+        .trophy-stats {
+            text-align: center;
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #444;
+            color: #888;
+            font-size: 11px;
+        }
+        .trophy-close {
+            color: #666;
+            font-size: 10px;
+            text-align: center;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -137,6 +250,7 @@
             <p>Controls:</p>
             <p>↑ Main Engine | ↓ RCS Down</p>
             <p>← RCS Left | → RCS Right</p>
+            <p style="margin-top: 10px; color: #ffd700;">T - Trophy Room</p>
         </div>
     </div>
 
@@ -159,7 +273,7 @@
                 ↑ Main Engine (thrust UP)<br>
                 ↓ Thrust DOWN (slow ascent)<br>
                 ← → Thrust LEFT/RIGHT (match CSM speed)<br>
-                P / ESC - Pause
+                P / ESC - Pause | T - Trophy Room
             </p>
 
             <p style="margin-top: 15px;"><strong>Visual Guides:</strong></p>
@@ -179,6 +293,19 @@
             <button class="touch-btn touch-down" data-key="ArrowDown">↓</button>
             <button class="touch-btn touch-right" data-key="ArrowRight">→</button>
         </div>
+    </div>
+
+    <div id="achievement-notification">
+        <div class="achievement-header">Achievement Unlocked!</div>
+        <div class="achievement-title" id="achievement-name"></div>
+        <div class="achievement-desc" id="achievement-desc"></div>
+    </div>
+
+    <div id="trophy-overlay">
+        <div class="trophy-title">Trophy Room</div>
+        <div class="trophy-grid" id="trophy-grid"></div>
+        <div class="trophy-stats" id="trophy-stats"></div>
+        <div class="trophy-close">Press T or ESC to close</div>
     </div>
 </div>
 
@@ -241,6 +368,227 @@ function calculateScore(fuelRemaining, timeElapsed, relVx, relVy) {
     const timeBonus = Math.max(0, 500 - Math.floor(timeElapsed / 100)); // Faster = more points
     const precisionBonus = Math.floor((2 - relVx - relVy) * 250); // Max 500 for perfect approach
     return Math.max(0, fuelScore + timeBonus + precisionBonus);
+}
+
+// ===== Achievement System =====
+const ACHIEVEMENTS = {
+    first_dock: {
+        id: 'first_dock',
+        name: 'First Contact',
+        description: 'Complete your first successful docking',
+        icon: '🚀',
+        check: (stats) => stats.totalDockings >= 1
+    },
+    perfect_dock: {
+        id: 'perfect_dock',
+        name: 'Perfect Docking',
+        description: 'Dock with relative velocity under 0.5 m/s',
+        icon: '🎯',
+        check: (stats) => stats.relVx < 0.5 && stats.relVy < 0.5
+    },
+    fuel_miser: {
+        id: 'fuel_miser',
+        name: 'Fuel Miser',
+        description: 'Complete docking with 60%+ fuel remaining',
+        icon: '⛽',
+        check: (stats) => stats.fuelRemaining >= 60
+    },
+    speed_runner: {
+        id: 'speed_runner',
+        name: 'Speed Runner',
+        description: 'Dock in under 30 seconds',
+        icon: '⚡',
+        check: (stats) => stats.timeElapsed < 30000
+    },
+    close_call: {
+        id: 'close_call',
+        name: 'Close Call',
+        description: 'Dock with less than 5% fuel remaining',
+        icon: '😰',
+        check: (stats) => stats.fuelRemaining < 5 && stats.fuelRemaining > 0
+    },
+    veteran: {
+        id: 'veteran',
+        name: 'Veteran Pilot',
+        description: 'Complete 5 successful dockings',
+        icon: '🎖️',
+        check: (stats) => stats.totalDockings >= 5
+    },
+    ace: {
+        id: 'ace',
+        name: 'Ace Pilot',
+        description: 'Complete 10 successful dockings',
+        icon: '👨‍🚀',
+        check: (stats) => stats.totalDockings >= 10
+    },
+    high_scorer: {
+        id: 'high_scorer',
+        name: 'High Scorer',
+        description: 'Achieve a score of 1500 or higher',
+        icon: '🏆',
+        check: (stats) => stats.score >= 1500
+    }
+};
+
+// Load achievements from localStorage
+function loadAchievements() {
+    const saved = localStorage.getItem('apolloAchievements');
+    if (saved) {
+        return JSON.parse(saved);
+    }
+    return {
+        unlocked: {},
+        totalDockings: 0,
+        bestScore: 0,
+        bestTime: Infinity
+    };
+}
+
+// Save achievements to localStorage
+function saveAchievements(data) {
+    localStorage.setItem('apolloAchievements', JSON.stringify(data));
+}
+
+// Achievement state
+let achievementData = loadAchievements();
+let pendingNotifications = [];
+let notificationTimeout = null;
+
+// Show achievement notification
+function showAchievementNotification(achievement) {
+    const notification = document.getElementById('achievement-notification');
+    const nameEl = document.getElementById('achievement-name');
+    const descEl = document.getElementById('achievement-desc');
+
+    nameEl.textContent = `${achievement.icon} ${achievement.name}`;
+    descEl.textContent = achievement.description;
+
+    notification.style.display = 'block';
+    notification.style.animation = 'none';
+    notification.offsetHeight; // Trigger reflow
+    notification.style.animation = 'slideIn 0.5s ease-out, glow 1.5s ease-in-out infinite';
+
+    // Play achievement sound
+    playAchievementSound();
+
+    // Hide after 3 seconds
+    if (notificationTimeout) clearTimeout(notificationTimeout);
+    notificationTimeout = setTimeout(() => {
+        notification.style.display = 'none';
+        // Show next pending notification if any
+        if (pendingNotifications.length > 0) {
+            const next = pendingNotifications.shift();
+            setTimeout(() => showAchievementNotification(next), 300);
+        }
+    }, 3000);
+}
+
+// Queue achievement notification
+function queueAchievementNotification(achievement) {
+    const notification = document.getElementById('achievement-notification');
+    if (notification.style.display === 'block') {
+        pendingNotifications.push(achievement);
+    } else {
+        showAchievementNotification(achievement);
+    }
+}
+
+// Check and unlock achievements
+function checkAchievements(stats) {
+    const newlyUnlocked = [];
+
+    for (const key in ACHIEVEMENTS) {
+        const achievement = ACHIEVEMENTS[key];
+        if (!achievementData.unlocked[achievement.id] && achievement.check(stats)) {
+            achievementData.unlocked[achievement.id] = {
+                unlockedAt: Date.now()
+            };
+            newlyUnlocked.push(achievement);
+        }
+    }
+
+    if (newlyUnlocked.length > 0) {
+        saveAchievements(achievementData);
+        newlyUnlocked.forEach(a => queueAchievementNotification(a));
+    }
+
+    return newlyUnlocked;
+}
+
+// Play achievement unlock sound
+function playAchievementSound() {
+    try {
+        const ctx = initAudio();
+        if (ctx.state === 'suspended') ctx.resume();
+
+        const now = ctx.currentTime;
+
+        // Play ascending arpeggio
+        [880, 1100, 1320, 1760].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * 0.08);
+            gain.gain.setValueAtTime(0.1, now + i * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3 + i * 0.08);
+            osc.start(now + i * 0.08);
+            osc.stop(now + 0.4 + i * 0.08);
+        });
+    } catch(e) {
+        // Audio not supported
+    }
+}
+
+// Render trophy room
+function renderTrophyRoom() {
+    const grid = document.getElementById('trophy-grid');
+    const stats = document.getElementById('trophy-stats');
+
+    grid.innerHTML = '';
+
+    for (const key in ACHIEVEMENTS) {
+        const achievement = ACHIEVEMENTS[key];
+        const isUnlocked = achievementData.unlocked[achievement.id];
+
+        const item = document.createElement('div');
+        item.className = `trophy-item ${isUnlocked ? 'unlocked' : 'locked'}`;
+
+        item.innerHTML = `
+            <div class="trophy-icon">${isUnlocked ? achievement.icon : '🔒'}</div>
+            <div class="trophy-name">${isUnlocked ? achievement.name : '???'}</div>
+            <div class="trophy-description">${isUnlocked ? achievement.description : 'Keep playing to unlock'}</div>
+        `;
+
+        grid.appendChild(item);
+    }
+
+    const totalAchievements = Object.keys(ACHIEVEMENTS).length;
+    const unlockedCount = Object.keys(achievementData.unlocked).length;
+    const percentage = Math.floor((unlockedCount / totalAchievements) * 100);
+
+    stats.innerHTML = `
+        ${unlockedCount}/${totalAchievements} Achievements (${percentage}%)<br>
+        Total Dockings: ${achievementData.totalDockings} | Best Score: ${achievementData.bestScore}
+    `;
+}
+
+// Toggle trophy room visibility
+function toggleTrophyRoom() {
+    const overlay = document.getElementById('trophy-overlay');
+    if (overlay.style.display === 'block') {
+        overlay.style.display = 'none';
+        if (gameState === 'paused') {
+            gameState = 'playing';
+        }
+    } else {
+        renderTrophyRoom();
+        overlay.style.display = 'block';
+        if (gameState === 'playing') {
+            gameState = 'paused';
+        }
+    }
 }
 
 // ===== Audio System (Web Audio API) =====
@@ -451,8 +799,29 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
-    // Pause/Resume with P or ESC
+    // Toggle trophy room with T
+    if ((e.key === 't' || e.key === 'T') && gameState !== 'won' && gameState !== 'lost') {
+        // Close other overlays first
+        if (tutorialOverlay.style.display === 'block') {
+            tutorialOverlay.style.display = 'none';
+        }
+        if (pauseOverlay.style.display === 'block') {
+            pauseOverlay.style.display = 'none';
+        }
+        toggleTrophyRoom();
+        e.preventDefault();
+        return;
+    }
+
+    // Pause/Resume with P or ESC (also closes trophy room)
     if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && (gameState === 'playing' || gameState === 'paused')) {
+        // If trophy room is open, close it
+        const trophyOverlay = document.getElementById('trophy-overlay');
+        if (trophyOverlay.style.display === 'block') {
+            toggleTrophyRoom();
+            e.preventDefault();
+            return;
+        }
         togglePause();
         e.preventDefault();
     }
@@ -884,18 +1253,44 @@ function endGame(success, message) {
     msgTitle.innerText = success ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
     msgTitle.style.color = success ? "#44ff44" : "#ff4444";
     msgDetail.innerText = message;
-    
+
     if (success) {
         // Calculate and display score
         const timeElapsed = Date.now() - gameStartTime;
         const relVx = Math.abs(lm.vx - CSM_SPEED);
         const relVy = Math.abs(lm.vy);
         const score = calculateScore(lm.fuel, timeElapsed, relVx, relVy);
-        
+
+        // Update achievement stats
+        achievementData.totalDockings++;
+        if (score > achievementData.bestScore) {
+            achievementData.bestScore = score;
+        }
+        if (timeElapsed < achievementData.bestTime) {
+            achievementData.bestTime = timeElapsed;
+        }
+        saveAchievements(achievementData);
+
+        // Check for new achievements
+        const stats = {
+            totalDockings: achievementData.totalDockings,
+            fuelRemaining: lm.fuel,
+            timeElapsed: timeElapsed,
+            relVx: relVx,
+            relVy: relVy,
+            score: score
+        };
+        const newAchievements = checkAchievements(stats);
+
         msgDetail.innerText += `\n\nFuel Remaining: ${Math.floor(lm.fuel)}%`;
         msgDetail.innerText += `\nTime: ${(timeElapsed / 1000).toFixed(1)}s`;
         msgDetail.innerText += `\n\n⭐ SCORE: ${score}`;
-        
+
+        // Show achievement count if any were unlocked
+        if (newAchievements.length > 0) {
+            msgDetail.innerText += `\n\n🏆 ${newAchievements.length} Achievement${newAchievements.length > 1 ? 's' : ''} Unlocked!`;
+        }
+
         // Play success sound and celebration
         playSound('dock_success');
         spawnCelebration(lm.x, lm.y);
@@ -904,7 +1299,7 @@ function endGame(success, message) {
         playSound('collision');
         triggerScreenShake(15);
     }
-    
+
     msgOverlay.style.display = 'block';
 }
 
