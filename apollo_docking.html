@@ -1041,6 +1041,13 @@ function drawDockingTarget(x, y, isAligned) {
     ctx.restore();
 }
 
+// ===== Utility Functions =====
+function applyScreenWrap(x) {
+    if (x > CANVAS_WIDTH) return x - CANVAS_WIDTH;
+    if (x < 0) return x + CANVAS_WIDTH;
+    return x;
+}
+
 // ===== Game Objects =====
 
 // Apollo Lunar Module (Ascent Stage)
@@ -1105,8 +1112,7 @@ const lm = {
         this.y += this.vy;
 
         // Screen Wrap
-        if (this.x > CANVAS_WIDTH) this.x = 0;
-        if (this.x < 0) this.x = CANVAS_WIDTH;
+        this.x = applyScreenWrap(this.x);
 
         // Ground Collision
         if (this.y + this.height/2 >= GROUND_Y) {
@@ -1146,7 +1152,7 @@ const csm = {
 
     update: function() {
         this.x += CSM_SPEED;
-        if (this.x > CANVAS_WIDTH) this.x = 0;
+        this.x = applyScreenWrap(this.x);
     },
 
     draw: function(ctx) {
@@ -1650,8 +1656,7 @@ function drawTrajectoryPrediction() {
         predY += predVy;
         
         // Screen wrap prediction
-        if (predX > CANVAS_WIDTH) predX -= CANVAS_WIDTH;
-        if (predX < 0) predX += CANVAS_WIDTH;
+        predX = applyScreenWrap(predX);
         
         // Stop at ground
         if (predY > GROUND_Y) {
