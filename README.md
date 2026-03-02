@@ -4,7 +4,14 @@ A browser-based space simulation game recreating the Apollo Lunar Module ascent 
 
 ## Play
 
-Open `apollo_docking.html` in any modern browser. No installation required.
+Serve the project directory with any local HTTP server and open `apollo_docking.html`:
+
+```
+python3 -m http.server 8080
+# then visit http://localhost:8080/apollo_docking.html
+```
+
+A server is needed because `game.js` is loaded as an ES module.
 
 ## How to Dock
 
@@ -42,7 +49,18 @@ Touch controls available on mobile devices.
 
 ## Tech
 
-Single HTML file with vanilla JavaScript. No dependencies, no build step.
+Vanilla JavaScript with zero runtime dependencies. No build step.
+
+- `apollo_docking.html` — markup and styles
+- `game.js` — all game logic (ES module)
+
+## Development
+
+```
+npm install
+npm test          # run unit & component tests (vitest)
+npm run test:watch  # re-run on file changes
+```
 
 ## License
 
