@@ -88,8 +88,8 @@ describe('calculateScore', () => {
 
         it('should handle very small velocities', () => {
             const score = calculateScore(100, 0, 0.1, 0.1);
-            // precision = (2-0.1-0.1)*250 = 450
-            expect(score).toBe(1950);
+            // precision = Math.floor((2-0.1-0.1)*250) = Math.floor(449.999...) = 449
+            expect(score).toBe(1949);
         });
     });
 

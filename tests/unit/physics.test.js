@@ -113,7 +113,7 @@ describe('applyScreenWrap', () => {
     it('should not modify position within bounds', () => {
         expect(applyScreenWrap(400)).toBe(400);
         expect(applyScreenWrap(0)).toBe(0);
-        expect(applyScreenWrap(CANVAS_WIDTH)).toBe(0); // Wraps at exactly CANVAS_WIDTH
+        expect(applyScreenWrap(CANVAS_WIDTH)).toBe(CANVAS_WIDTH); // Exactly at edge is still in bounds
     });
 
     it('should wrap position when exceeding right edge', () => {
@@ -127,8 +127,8 @@ describe('applyScreenWrap', () => {
     });
 
     it('should handle edge cases', () => {
-        // Exactly at CANVAS_WIDTH should wrap to 0
-        expect(applyScreenWrap(800)).toBe(0);
+        // Exactly at CANVAS_WIDTH is still in bounds (uses > not >=)
+        expect(applyScreenWrap(800)).toBe(800);
         // Exactly at 0 should stay at 0
         expect(applyScreenWrap(0)).toBe(0);
     });

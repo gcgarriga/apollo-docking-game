@@ -43,35 +43,6 @@ export const LM_GHOST_THRESHOLD = 30;          // Distance from edge to show gho
 export const DOCKING_AIDS_RANGE = 400;         // Distance at which docking aids become visible
 export const TRAJECTORY_PREDICTION_STEPS = 60; // Number of frames to predict trajectory
 
-// Exported config object for convenience
-export const GameConfig = {
-    GRAVITY,
-    MAIN_THRUST,
-    RCS_THRUST,
-    FUEL_MAIN_COST,
-    FUEL_RCS_COST,
-    CANVAS_WIDTH,
-    CANVAS_HEIGHT,
-    GROUND_Y,
-    CSM_ORBIT_Y,
-    CSM_SPEED,
-    DOCKING_VEL_THRESHOLD_X,
-    DOCKING_VEL_THRESHOLD_Y,
-    CRASH_VEL_THRESHOLD,
-    FUEL_WARNING_THRESHOLD,
-    FUEL_CRITICAL_THRESHOLD,
-    LANDING_FRICTION,
-    FUEL_DEPLETION_ALTITUDE_THRESHOLD,
-    PARTICLE_COUNT_PER_THRUST,
-    PARTICLE_MIN_LIFE,
-    PARTICLE_MAX_LIFE,
-    PARTICLE_ALPHA_DIVISOR,
-    STAR_COUNT,
-    LM_GHOST_THRESHOLD,
-    DOCKING_AIDS_RANGE,
-    TRAJECTORY_PREDICTION_STEPS
-};
-
 // ===== Game State =====
 export let gameState = 'playing'; // playing, paused, won, lost
 export let keys = {};
@@ -404,7 +375,7 @@ export function createCSM(initialState = {}) {
 
         update: function() {
             this.x += CSM_SPEED;
-            if (this.x > CANVAS_WIDTH) this.x = 0;
+            this.x = applyScreenWrap(this.x);
         },
 
         draw: function(ctx) {
