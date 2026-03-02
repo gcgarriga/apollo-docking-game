@@ -1,2 +1,8 @@
+# Dependencies
+node_modules/
+
+# Test coverage
+coverage/
+
 # Project specification (local only)
 spec.md
