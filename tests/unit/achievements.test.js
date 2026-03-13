@@ -178,6 +178,14 @@ describe('loadAchievements', () => {
         expect(data.bestScore).toBe(1500);
         expect(data.bestTime).toBe(20000);
     });
+
+    it('should return defaults and clear storage on corrupt data', () => {
+        localStorage.setItem('apolloAchievements', '{CORRUPT!!!');
+        const data = loadAchievements();
+        expect(data.unlocked).toEqual({});
+        expect(data.totalDockings).toBe(0);
+        expect(localStorage.getItem('apolloAchievements')).toBeNull();
+    });
 });
 
 describe('saveAchievements', () => {

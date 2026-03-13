@@ -14,8 +14,11 @@ import {
     GROUND_Y,
     CRASH_VEL_THRESHOLD,
     LANDING_FRICTION,
-    FUEL_DEPLETION_ALTITUDE_THRESHOLD
+    FUEL_DEPLETION_ALTITUDE_THRESHOLD,
+    TARGET_FPS
 } from '../../game.js';
+
+const DT = 1 / TARGET_FPS; // default dt used when calling update() without explicit dt
 
 describe('LM (Lunar Module)', () => {
     let lm;
@@ -68,14 +71,14 @@ describe('LM (Lunar Module)', () => {
         it('should apply gravity each update', () => {
             const initialVy = lm.vy;
             lm.update({}, 'playing');
-            expect(lm.vy).toBe(initialVy + GRAVITY);
+            expect(lm.vy).toBeCloseTo(initialVy + GRAVITY * DT, 5);
         });
 
         it('should accumulate gravity over multiple updates', () => {
             lm.update({}, 'playing');
             lm.update({}, 'playing');
             lm.update({}, 'playing');
-            expect(lm.vy).toBeCloseTo(GRAVITY * 3, 5);
+            expect(lm.vy).toBeCloseTo(GRAVITY * DT * 3, 5);
         });
     });
 
@@ -83,14 +86,14 @@ describe('LM (Lunar Module)', () => {
         it('should reduce vy when ArrowUp pressed with fuel', () => {
             const initialVy = lm.vy;
             lm.update({ ArrowUp: true }, 'playing');
-            // Gravity adds GRAVITY, thrust subtracts MAIN_THRUST
-            expect(lm.vy).toBe(initialVy + GRAVITY - MAIN_THRUST);
+            // Gravity adds GRAVITY*DT, thrust subtracts MAIN_THRUST*DT
+            expect(lm.vy).toBeCloseTo(initialVy + GRAVITY * DT - MAIN_THRUST * DT, 5);
         });
 
         it('should consume fuel when thrusting', () => {
             const initialFuel = lm.fuel;
             lm.update({ ArrowUp: true }, 'playing');
-            expect(lm.fuel).toBe(initialFuel - FUEL_MAIN_COST);
+            expect(lm.fuel).toBeCloseTo(initialFuel - FUEL_MAIN_COST * DT, 5);
         });
 
         it('should call onMainThrust callback', () => {
@@ -104,7 +107,7 @@ describe('LM (Lunar Module)', () => {
             const initialVy = lm.vy;
             lm.update({ ArrowUp: true }, 'playing');
             // Only gravity should apply
-            expect(lm.vy).toBe(initialVy + GRAVITY);
+            expect(lm.vy).toBeCloseTo(initialVy + GRAVITY * DT, 5);
         });
     });
 
@@ -113,13 +116,13 @@ describe('LM (Lunar Module)', () => {
             it('should increase vy', () => {
                 const initialVy = lm.vy;
                 lm.update({ ArrowDown: true }, 'playing');
-                expect(lm.vy).toBe(initialVy + GRAVITY + RCS_THRUST);
+                expect(lm.vy).toBeCloseTo(initialVy + GRAVITY * DT + RCS_THRUST * DT, 5);
             });
 
             it('should consume RCS fuel', () => {
                 const initialFuel = lm.fuel;
                 lm.update({ ArrowDown: true }, 'playing');
-                expect(lm.fuel).toBe(initialFuel - FUEL_RCS_COST);
+                expect(lm.fuel).toBeCloseTo(initialFuel - FUEL_RCS_COST * DT, 5);
             });
         });
 
@@ -127,7 +130,7 @@ describe('LM (Lunar Module)', () => {
             it('should decrease vx', () => {
                 const initialVx = lm.vx;
                 lm.update({ ArrowLeft: true }, 'playing');
-                expect(lm.vx).toBe(initialVx - RCS_THRUST);
+                expect(lm.vx).toBeCloseTo(initialVx - RCS_THRUST * DT, 5);
             });
         });
 
@@ -135,7 +138,7 @@ describe('LM (Lunar Module)', () => {
             it('should increase vx', () => {
                 const initialVx = lm.vx;
                 lm.update({ ArrowRight: true }, 'playing');
-                expect(lm.vx).toBe(initialVx + RCS_THRUST);
+                expect(lm.vx).toBeCloseTo(initialVx + RCS_THRUST * DT, 5);
             });
         });
 

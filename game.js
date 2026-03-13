@@ -10,19 +10,20 @@
 
 // ===== Configuration Constants =====
 
-// Physics Constants
-export const GRAVITY = 0.05;         // Downward acceleration per frame (approx 1.62 simulated scaled)
-export const MAIN_THRUST = 0.15;     // Up arrow force
-export const RCS_THRUST = 0.08;      // RCS force (Left/Right/Down) - increased for better fine control
-export const FUEL_MAIN_COST = 0.2;   // Fuel cost per frame for main engine (reduced for more forgiving gameplay)
-export const FUEL_RCS_COST = 0.05;   // Fuel cost per frame for RCS (reduced for more forgiving gameplay)
+// Physics Constants (per-second values, multiplied by dt each frame)
+export const TARGET_FPS = 60;
+export const GRAVITY = 0.05 * TARGET_FPS;           // Downward acceleration per second
+export const MAIN_THRUST = 0.15 * TARGET_FPS;       // Up arrow force per second
+export const RCS_THRUST = 0.08 * TARGET_FPS;        // RCS force per second
+export const FUEL_MAIN_COST = 0.2 * TARGET_FPS;     // Fuel cost per second for main engine
+export const FUEL_RCS_COST = 0.05 * TARGET_FPS;     // Fuel cost per second for RCS
 
 // Canvas & World Constants
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
 export const GROUND_Y = 550;         // Surface level
 export const CSM_ORBIT_Y = 100;      // Height of CSM orbit
-export const CSM_SPEED = 0.7;        // Constant orbital speed of CSM (reduced for easier matching)
+export const CSM_SPEED = 0.7;        // Orbital speed of CSM (pixels per frame at 60fps, same unit as lm velocity)
 
 // Threshold Constants
 export const DOCKING_VEL_THRESHOLD_X = 1.5;    // Max horizontal relative velocity for successful docking (increased)
@@ -44,29 +45,9 @@ export const DOCKING_AIDS_RANGE = 400;         // Distance at which docking aids
 export const TRAJECTORY_PREDICTION_STEPS = 60; // Number of frames to predict trajectory
 
 // ===== Game State =====
-export let gameState = 'playing'; // playing, paused, won, lost
-export let keys = {};
-export let gameStartTime = Date.now();
-export let screenShake = 0;
-export let celebrationParticles = [];
+// Note: Game state is managed locally within createGameController().
+// These module-level variables exist only as default parameter values for createLM/createCSM.
 export const particles = [];
-
-// State setters for testing
-export function setGameState(state) {
-    gameState = state;
-}
-
-export function setKeys(newKeys) {
-    keys = newKeys;
-}
-
-export function setGameStartTime(time) {
-    gameStartTime = time;
-}
-
-export function resetScreenShake() {
-    screenShake = 0;
-}
 
 // ===== Scoring System =====
 export function calculateScore(fuelRemaining, timeElapsed, relVx, relVy) {
@@ -138,24 +119,25 @@ export const ACHIEVEMENTS = {
 
 // Load achievements from localStorage
 export function loadAchievements() {
-    if (typeof localStorage === 'undefined') {
-        return {
-            unlocked: {},
-            totalDockings: 0,
-            bestScore: 0,
-            bestTime: Infinity
-        };
-    }
-    const saved = localStorage.getItem('apolloAchievements');
-    if (saved) {
-        return JSON.parse(saved);
-    }
-    return {
+    const defaults = {
         unlocked: {},
         totalDockings: 0,
         bestScore: 0,
         bestTime: Infinity
     };
+    if (typeof localStorage === 'undefined') {
+        return defaults;
+    }
+    try {
+        const saved = localStorage.getItem('apolloAchievements');
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        // Corrupt data — clear it and start fresh
+        localStorage.removeItem('apolloAchievements');
+    }
+    return defaults;
 }
 
 // Save achievements to localStorage
@@ -165,17 +147,11 @@ export function saveAchievements(data) {
     }
 }
 
-// Achievement state
-export let achievementData = loadAchievements();
-export let pendingNotifications = [];
-export let notificationTimeout = null;
-
-export function setAchievementData(data) {
-    achievementData = data;
-}
+// Achievement state is managed locally within createGameController().
+// checkAchievements() accepts achievement data as a parameter.
 
 // Check and unlock achievements
-export function checkAchievements(stats, currentAchievementData = achievementData) {
+export function checkAchievements(stats, currentAchievementData) {
     const newlyUnlocked = [];
 
     for (const key in ACHIEVEMENTS) {
@@ -282,36 +258,36 @@ export function createLM(initialState = {}) {
         height: 30,
         fuel: initialState.fuel ?? 100,
 
-        update: function(currentKeys = keys, currentGameState = gameState, callbacks = {}) {
+        update: function(currentKeys = {}, currentGameState = 'playing', callbacks = {}, dt = 1 / TARGET_FPS) {
             if (currentGameState !== 'playing') return;
 
             // Gravity
-            this.vy += GRAVITY;
+            this.vy += GRAVITY * dt;
 
             // Apply Thrust
             if (this.fuel > 0) {
                 // Main Engine (Up Arrow -> Force Up)
                 if (currentKeys['ArrowUp']) {
-                    this.vy -= MAIN_THRUST;
-                    this.fuel -= FUEL_MAIN_COST;
+                    this.vy -= MAIN_THRUST * dt;
+                    this.fuel -= FUEL_MAIN_COST * dt;
                     if (callbacks.onMainThrust) callbacks.onMainThrust(this.x, this.y + this.height/2);
                 }
                 // RCS Down (Down Arrow -> Force Down)
                 if (currentKeys['ArrowDown']) {
-                    this.vy += RCS_THRUST;
-                    this.fuel -= FUEL_RCS_COST;
+                    this.vy += RCS_THRUST * dt;
+                    this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x, this.y - this.height/2, 'up');
                 }
                 // RCS Left (Left Arrow -> Force Left)
                 if (currentKeys['ArrowLeft']) {
-                    this.vx -= RCS_THRUST;
-                    this.fuel -= FUEL_RCS_COST;
+                    this.vx -= RCS_THRUST * dt;
+                    this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x + this.width/2, this.y, 'right');
                 }
                 // RCS Right (Right Arrow -> Force Right)
                 if (currentKeys['ArrowRight']) {
-                    this.vx += RCS_THRUST;
-                    this.fuel -= FUEL_RCS_COST;
+                    this.vx += RCS_THRUST * dt;
+                    this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x - this.width/2, this.y, 'left');
                 }
             }
@@ -325,8 +301,8 @@ export function createLM(initialState = {}) {
             }
 
             // Apply movement
-            this.x += this.vx;
-            this.y += this.vy;
+            this.x += this.vx * dt * TARGET_FPS;
+            this.y += this.vy * dt * TARGET_FPS;
 
             // Screen Wrap
             this.x = applyScreenWrap(this.x);
@@ -349,7 +325,6 @@ export function createLM(initialState = {}) {
             // Fuel Depletion Check
             if (this.fuel <= 0) {
                 const altitude = GROUND_Y - (this.y + 15);
-                // If out of fuel in space, trigger failure
                 if (altitude > FUEL_DEPLETION_ALTITUDE_THRESHOLD) {
                     if (callbacks.onFuelDepleted) callbacks.onFuelDepleted();
                     return 'fuel_depleted';
@@ -368,13 +343,13 @@ export function createLM(initialState = {}) {
 // ===== CSM Factory =====
 export function createCSM(initialState = {}) {
     return {
-        x: initialState.x ?? 0,
+        x: initialState.x ?? Math.random() * CANVAS_WIDTH,
         y: initialState.y ?? CSM_ORBIT_Y,
         width: 50,
         height: 20,
 
-        update: function() {
-            this.x += CSM_SPEED;
+        update: function(dt = 1 / TARGET_FPS) {
+            this.x += CSM_SPEED * dt * TARGET_FPS;
             this.x = applyScreenWrap(this.x);
         },
 
@@ -498,21 +473,6 @@ export function drawCSMAtPosition(ctx, x, y) {
     ctx.fillRect(-3, -14, 6, 3);
 
     ctx.restore();
-}
-
-// ===== Screen Shake =====
-export function triggerScreenShake(intensity) {
-    screenShake = intensity;
-}
-
-export function applyScreenShake(ctx) {
-    if (screenShake > 0) {
-        const shakeX = (Math.random() - 0.5) * screenShake;
-        const shakeY = (Math.random() - 0.5) * screenShake;
-        ctx.translate(shakeX, shakeY);
-        screenShake *= 0.9; // Decay
-        if (screenShake < 0.5) screenShake = 0;
-    }
 }
 
 // ===== Celebration Effects =====
@@ -750,12 +710,14 @@ export function createGameController(options = {}) {
         trophyGrid = document.getElementById('trophy-grid');
         trophyStats = document.getElementById('trophy-stats');
 
-        // Generate stars
+        // Generate stars with twinkle properties
         for(let i=0; i<STAR_COUNT; i++) {
             starList.push({
                 x: Math.random() * CANVAS_WIDTH,
                 y: Math.random() * CANVAS_HEIGHT,
-                size: Math.random() * 2
+                size: Math.random() * 2,
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.5 + Math.random() * 2
             });
         }
 
@@ -767,7 +729,6 @@ export function createGameController(options = {}) {
 
         window.addEventListener('keydown', (e) => {
             localKeys[e.key] = true;
-            keys[e.key] = true;
 
             // Dismiss tutorial on any key
             if (tutorialOverlay && tutorialOverlay.style.display === 'block') {
@@ -812,7 +773,6 @@ export function createGameController(options = {}) {
 
         window.addEventListener('keyup', (e) => {
             localKeys[e.key] = false;
-            keys[e.key] = false;
         });
 
         // Touch controls
@@ -832,19 +792,16 @@ export function createGameController(options = {}) {
                 button.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     localKeys[key] = true;
-                    keys[key] = true;
                 });
 
                 button.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     localKeys[key] = false;
-                    keys[key] = false;
                 });
 
                 button.addEventListener('touchcancel', (e) => {
                     e.preventDefault();
                     localKeys[key] = false;
-                    keys[key] = false;
                 });
             });
         }
@@ -940,14 +897,12 @@ export function createGameController(options = {}) {
             trophyOverlay.style.display = 'none';
             if (localGameState === 'paused') {
                 localGameState = 'playing';
-                gameState = 'playing';
             }
         } else {
             renderTrophyRoom();
             trophyOverlay.style.display = 'block';
             if (localGameState === 'playing') {
                 localGameState = 'paused';
-                gameState = 'paused';
             }
         }
     }
@@ -955,11 +910,9 @@ export function createGameController(options = {}) {
     function togglePause() {
         if (localGameState === 'playing') {
             localGameState = 'paused';
-            gameState = 'paused';
             if (pauseOverlay) pauseOverlay.style.display = 'block';
         } else if (localGameState === 'paused') {
             localGameState = 'playing';
-            gameState = 'playing';
             if (pauseOverlay) pauseOverlay.style.display = 'none';
         }
     }
@@ -970,13 +923,11 @@ export function createGameController(options = {}) {
             tutorialOverlay.style.display = 'none';
             if (localGameState === 'paused') {
                 localGameState = 'playing';
-                gameState = 'playing';
             }
         } else {
             tutorialOverlay.style.display = 'block';
             if (localGameState === 'playing') {
                 localGameState = 'paused';
-                gameState = 'paused';
             }
         }
     }
@@ -991,7 +942,6 @@ export function createGameController(options = {}) {
 
     function endGame(success, message) {
         localGameState = success ? 'won' : 'lost';
-        gameState = localGameState;
 
         if (msgTitle) {
             msgTitle.innerText = success ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
@@ -1039,7 +989,6 @@ export function createGameController(options = {}) {
         } else {
             playSound('collision');
             localScreenShake = 15;
-            screenShake = 15;
         }
 
         if (msgOverlay) msgOverlay.style.display = 'block';
@@ -1047,9 +996,7 @@ export function createGameController(options = {}) {
 
     function resetGame() {
         localGameState = 'playing';
-        gameState = 'playing';
         localGameStartTime = Date.now();
-        gameStartTime = localGameStartTime;
         if (msgOverlay) msgOverlay.style.display = 'none';
         if (pauseOverlay) pauseOverlay.style.display = 'none';
 
@@ -1058,7 +1005,7 @@ export function createGameController(options = {}) {
         localParticles.length = 0;
         localCelebrationParticles.length = 0;
         localScreenShake = 0;
-        screenShake = 0;
+        lastFrameTime = 0;
     }
 
     function checkCollisions() {
@@ -1121,11 +1068,59 @@ export function createGameController(options = {}) {
         else uiFuel.style.color = 'white';
     }
 
+    function drawFuelGauge() {
+        const barX = CANVAS_WIDTH - 25;
+        const barY = 40;
+        const barW = 12;
+        const barH = 150;
+        const fuelPct = Math.max(0, lm.fuel) / 100;
+
+        ctx.save();
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+
+        // Fuel fill — green to yellow to red
+        const fillH = barH * fuelPct;
+        const fillY = barY + barH - fillH;
+        let r, g;
+        if (fuelPct > 0.5) {
+            r = Math.floor(255 * (1 - (fuelPct - 0.5) * 2));
+            g = 255;
+        } else {
+            r = 255;
+            g = Math.floor(255 * fuelPct * 2);
+        }
+
+        // Pulse when below warning threshold
+        let alpha = 0.9;
+        if (lm.fuel < FUEL_WARNING_THRESHOLD && lm.fuel > 0) {
+            alpha = 0.5 + 0.4 * Math.abs(Math.sin(Date.now() / 150));
+        }
+
+        ctx.fillStyle = `rgba(${r}, ${g}, 0, ${alpha})`;
+        ctx.fillRect(barX, fillY, barW, fillH);
+
+        // Label
+        ctx.fillStyle = '#aaa';
+        ctx.font = '9px "Courier New"';
+        ctx.textAlign = 'center';
+        ctx.fillText('FUEL', barX + barW / 2, barY - 6);
+
+        ctx.restore();
+    }
+
     function drawBackground() {
         ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        ctx.fillStyle = 'white';
+        const now = Date.now() / 1000;
         starList.forEach(star => {
+            const alpha = 0.4 + 0.6 * ((Math.sin(now * star.speed + star.phase) + 1) / 2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
             ctx.fillRect(star.x, star.y, star.size, star.size);
         });
 
@@ -1260,11 +1255,12 @@ export function createGameController(options = {}) {
         let predY = lm.y;
         let predVx = lm.vx;
         let predVy = lm.vy;
+        const stepDt = 1 / TARGET_FPS;
 
         for (let i = 0; i < TRAJECTORY_PREDICTION_STEPS; i++) {
-            predVy += GRAVITY;
-            predX += predVx;
-            predY += predVy;
+            predVy += GRAVITY * stepDt;
+            predX += predVx * stepDt * TARGET_FPS;
+            predY += predVy * stepDt * TARGET_FPS;
 
             if (predX > CANVAS_WIDTH) predX -= CANVAS_WIDTH;
             if (predX < 0) predX += CANVAS_WIDTH;
@@ -1370,7 +1366,15 @@ export function createGameController(options = {}) {
         });
     }
 
-    function loop() {
+    let lastFrameTime = 0;
+
+    function loop(timestamp) {
+        if (!lastFrameTime) lastFrameTime = timestamp;
+        const rawDt = (timestamp - lastFrameTime) / 1000;
+        // Clamp dt to avoid spiral of death on tab-switch
+        const dt = Math.min(rawDt, 0.1);
+        lastFrameTime = timestamp;
+
         if (localGameState === 'playing') {
             const callbacks = {
                 onMainThrust: (x, y) => {
@@ -1386,8 +1390,8 @@ export function createGameController(options = {}) {
                 onFuelDepleted: () => endGame(false, "Fuel Depleted! Unable to control craft.")
             };
 
-            const status = lm.update(localKeys, localGameState, callbacks);
-            csm.update();
+            const status = lm.update(localKeys, localGameState, callbacks, dt);
+            csm.update(dt);
 
             if (status === 'flying') {
                 checkCollisions();
@@ -1426,6 +1430,7 @@ export function createGameController(options = {}) {
         }
 
         drawCelebrationParticles();
+        drawFuelGauge();
 
         ctx.restore();
 
@@ -1438,7 +1443,9 @@ export function createGameController(options = {}) {
     return {
         init: function() {
             if (!initDOM()) {
-                console.error('Failed to initialize DOM elements');
+                if (typeof process === 'undefined') {
+                    console.error('Failed to initialize DOM elements');
+                }
                 return false;
             }
             initInputHandlers();
@@ -1451,7 +1458,7 @@ export function createGameController(options = {}) {
         getLM: () => lm,
         getCSM: () => csm,
         getGameState: () => localGameState,
-        setGameState: (state) => { localGameState = state; gameState = state; },
+        setGameState: (state) => { localGameState = state; },
         resetGame,
         togglePause,
         toggleTrophyRoom,

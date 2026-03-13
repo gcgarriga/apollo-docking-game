@@ -259,11 +259,20 @@ export function resetMocks() {
 }
 
 // ===== Global Test Lifecycle =====
+let originalConsoleError;
+
 beforeEach(() => {
     resetMocks();
     setupDOM();
+    // Suppress expected "Failed to initialize DOM elements" noise from createGameController
+    originalConsoleError = console.error;
+    console.error = vi.fn((...args) => {
+        if (typeof args[0] === 'string' && args[0].includes('Failed to initialize DOM elements')) return;
+        originalConsoleError.call(console, ...args);
+    });
 });
 
 afterEach(() => {
     vi.clearAllTimers();
+    console.error = originalConsoleError;
 });

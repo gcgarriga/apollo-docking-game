@@ -21,6 +21,9 @@
             position: relative;
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
             border: 2px solid #444;
+            width: 800px;
+            height: 600px;
+            transform-origin: center center;
         }
         canvas {
             display: block;
@@ -309,6 +312,26 @@
     </div>
 </div>
 
+<script>
+// Responsive scaling — fit 800×600 game to viewport
+(function() {
+    const GAME_W = 800, GAME_H = 600, PAD = 20;
+    function resize() {
+        const el = document.getElementById('game-container');
+        if (!el) return;
+        const scaleX = (window.innerWidth - PAD) / GAME_W;
+        const scaleY = (window.innerHeight - PAD) / GAME_H;
+        const scale = Math.min(scaleX, scaleY, 1);
+        el.style.transform = 'scale(' + scale + ')';
+    }
+    window.addEventListener('resize', resize);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', resize);
+    } else {
+        resize();
+    }
+})();
+</script>
 <script type="module" src="game.js"></script>
 </body>
 </html>
