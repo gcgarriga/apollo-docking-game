@@ -58,7 +58,7 @@ Vanilla JavaScript with zero runtime dependencies. No build step.
 
 ```
 npm install
-npm test            # run all 46 tests (vitest)
+npm test            # run all tests (vitest)
 npm run test:watch  # re-run on file changes
 ```
 
@@ -66,11 +66,11 @@ npm run test:watch  # re-run on file changes
 
 3 test files covering all exported game logic:
 
-| File | Area | Tests |
-|------|------|-------|
-| `tests/unit/core-logic.test.js` | Physics, scoring, achievements, approach status, docking collision | 21 |
-| `tests/unit/game-systems.test.js` | Particles, celebration effects, audio, rendering | 10 |
-| `tests/component/game.test.js` | LM, CSM, game controller | 15 |
+| File | Area |
+|------|------|
+| `tests/unit/core-logic.test.js` | Physics, scoring, achievements, approach status, docking collision |
+| `tests/unit/game-systems.test.js` | Particles, celebration effects, audio, rendering |
+| `tests/component/game.test.js` | LM, CSM, game controller |
 
 ## License
 
