@@ -1453,7 +1453,8 @@ export function createGameController(options = {}) {
             return true;
         },
         start: function() {
-            loop();
+            lastFrameTime = 0;
+            requestAnimationFrame(loop);
         },
         getLM: () => lm,
         getCSM: () => csm,
