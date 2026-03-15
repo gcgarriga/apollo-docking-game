@@ -64,7 +64,7 @@ npm run test:watch  # re-run on file changes
 
 ### Test Coverage
 
-3 test files covering all exported game logic:
+3 test files covering core exported game logic:
 
 | File | Area |
 |------|------|
