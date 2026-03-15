@@ -58,9 +58,19 @@ Vanilla JavaScript with zero runtime dependencies. No build step.
 
 ```
 npm install
-npm test          # run unit & component tests (vitest)
+npm test            # run all tests (vitest)
 npm run test:watch  # re-run on file changes
 ```
+
+### Test Coverage
+
+3 test files covering core exported game logic:
+
+| File | Area |
+|------|------|
+| `tests/unit/core-logic.test.js` | Physics, scoring, achievements, approach status, docking collision |
+| `tests/unit/game-systems.test.js` | Particles, celebration effects, audio, rendering |
+| `tests/component/game.test.js` | LM, CSM, game controller |
 
 ## License
 
