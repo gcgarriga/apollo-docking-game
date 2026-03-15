@@ -49,7 +49,13 @@ describe('Particle system', () => {
 });
 
 describe('Audio system', () => {
-    beforeEach(() => setAudioContext(null));
+    beforeEach(() => {
+        const MockAudioContext = createAudioContextMock();
+        // Ensure initAudio can construct an AudioContext in the test environment
+        globalThis.AudioContext = MockAudioContext;
+        globalThis.webkitAudioContext = MockAudioContext;
+        setAudioContext(null);
+    });
 
     it('initializes and returns audio context', () => {
         const ctx = initAudio();
