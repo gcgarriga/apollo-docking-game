@@ -122,4 +122,19 @@ describe('Game Controller', () => {
         ctrl.resetGame();
         expect(ctrl.getGameState()).toBe('playing');
     });
+
+    it('starts without poisoning game state with NaN values', async () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        ctrl.start();
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+        const lm = ctrl.getLM();
+        const csm = ctrl.getCSM();
+        expect(Number.isFinite(lm.x)).toBe(true);
+        expect(Number.isFinite(lm.y)).toBe(true);
+        expect(Number.isFinite(csm.x)).toBe(true);
+        expect(Number.isFinite(csm.y)).toBe(true);
+    });
 });
