@@ -3,7 +3,6 @@ import {
     createLM, createCSM, createGameController,
     CSM_ORBIT_Y, CSM_SPEED, CANVAS_WIDTH, GROUND_Y, CRASH_VEL_THRESHOLD,
     GRAVITY, MAIN_THRUST, FUEL_MAIN_COST, RCS_THRUST, TARGET_FPS,
-    gameState
 } from '../../game.js';
 
 const DT = 1 / TARGET_FPS;
@@ -111,9 +110,9 @@ describe('Game Controller', () => {
         const ctrl = createGameController();
         ctrl.init();
         ctrl.togglePause();
-        expect(gameState).toBe('paused');
+        expect(ctrl.getGameState()).toBe('paused');
         ctrl.togglePause();
-        expect(gameState).toBe('playing');
+        expect(ctrl.getGameState()).toBe('playing');
     });
 
     it('resets game state', () => {
@@ -121,6 +120,6 @@ describe('Game Controller', () => {
         ctrl.init();
         ctrl.togglePause();
         ctrl.resetGame();
-        expect(gameState).toBe('playing');
+        expect(ctrl.getGameState()).toBe('playing');
     });
 });

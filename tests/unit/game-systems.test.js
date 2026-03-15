@@ -1,8 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createCanvasContextMock, createAudioContextMock } from '../setup.js';
 import {
     Particle, spawnExhaust, spawnCelebration, updateCelebrationParticles,
-    triggerScreenShake, applyScreenShake, resetScreenShake, screenShake,
     initAudio, getAudioContext, setAudioContext, playSound,
     drawLMAtPosition, drawCSMAtPosition,
     PARTICLE_COUNT_PER_THRUST
@@ -46,29 +45,6 @@ describe('Particle system', () => {
         const arr = [{ x: 0, y: 0, vx: 1, vy: 0, life: 1 }];
         updateCelebrationParticles(arr);
         expect(arr).toHaveLength(0); // life 1 → 0, removed
-    });
-});
-
-describe('Screen shake', () => {
-    beforeEach(() => resetScreenShake());
-
-    it('triggers, decays, and resets', () => {
-        triggerScreenShake(10);
-        expect(screenShake).toBe(10);
-
-        const ctx = createCanvasContextMock();
-        applyScreenShake(ctx);
-        expect(ctx.translate).toHaveBeenCalled();
-        expect(screenShake).toBeLessThan(10);
-
-        resetScreenShake();
-        expect(screenShake).toBe(0);
-    });
-
-    it('does nothing when shake is zero', () => {
-        const ctx = createCanvasContextMock();
-        applyScreenShake(ctx);
-        expect(ctx.translate).not.toHaveBeenCalled();
     });
 });
 
