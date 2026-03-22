@@ -171,6 +171,201 @@ export function checkAchievements(stats, currentAchievementData) {
     return newlyUnlocked;
 }
 
+// ===== Campaign System =====
+
+export const CAMPAIGN_VERSION = 1;
+export const CAMPAIGN_MAX_LOG_ENTRIES = 15;
+export const CAMPAIGN_MIN_FUEL_BUDGET = 40;
+export const CAMPAIGN_MAX_SUPPLIES = 5;
+export const CAMPAIGN_INTEGRITY_PER_SUPPLY = 5;
+
+export const CAMPAIGN_MODIFIERS = [
+    {
+        id: 'normal',
+        name: 'Standard Conditions',
+        description: 'No special conditions today.',
+        effects: {}
+    },
+    {
+        id: 'thin-margins',
+        name: 'Thin Margins',
+        description: 'Docking tolerances are tighter today.',
+        effects: { dockingThresholdScale: 0.75 }
+    },
+    {
+        id: 'low-reserves',
+        name: 'Low Reserves',
+        description: 'Fuel allocation reduced for this mission.',
+        effects: { fuelBudgetScale: 0.8 }
+    },
+    {
+        id: 'drift-watch',
+        name: 'Drift Watch',
+        description: 'CSM orbit is faster today.',
+        effects: { csmSpeedScale: 1.2 }
+    },
+    {
+        id: 'cold-systems',
+        name: 'Cold Systems',
+        description: 'RCS thrusters are sluggish today.',
+        effects: { rcsScale: 0.75 }
+    },
+    {
+        id: 'stable-window',
+        name: 'Stable Window',
+        description: 'Conditions are favorable. A good day to recover.',
+        effects: { dockingThresholdScale: 1.15 }
+    }
+];
+
+export function createDefaultCampaign() {
+    return {
+        version: CAMPAIGN_VERSION,
+        day: 1,
+        integrity: 100,
+        supplies: 3,
+        fuelBudget: 100,
+        streak: 0,
+        lastOutcome: null,
+        activeModifier: null,
+        missionLog: []
+    };
+}
+
+export function loadCampaign() {
+    const defaults = createDefaultCampaign();
+    if (typeof localStorage === 'undefined') return defaults;
+    try {
+        const saved = localStorage.getItem('apolloCampaign');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && parsed.version === CAMPAIGN_VERSION) {
+                return parsed;
+            }
+        }
+    } catch (e) {
+        localStorage.removeItem('apolloCampaign');
+    }
+    return defaults;
+}
+
+export function saveCampaign(campaign) {
+    if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('apolloCampaign', JSON.stringify(campaign));
+    }
+}
+
+export function resetCampaign() {
+    if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('apolloCampaign');
+    }
+    return createDefaultCampaign();
+}
+
+export function selectCampaignModifier(campaign) {
+    if (campaign.lastOutcome === 'severe_failure') {
+        return CAMPAIGN_MODIFIERS.find(m => m.id === 'stable-window');
+    }
+    if (campaign.day <= 3) {
+        return CAMPAIGN_MODIFIERS.find(m => m.id === 'normal');
+    }
+    const challenging = CAMPAIGN_MODIFIERS.filter(m => m.id !== 'stable-window' && m.id !== 'normal');
+    const index = (campaign.day * 7 + campaign.streak * 3) % challenging.length;
+    return challenging[index];
+}
+
+export function createMissionConfigFromCampaign(campaign) {
+    const modifier = campaign.activeModifier || { effects: {} };
+    const effects = modifier.effects || {};
+
+    // Integrity scales docking tolerance: 100 → normal, 0 → 70% of normal
+    const integrityScale = 0.7 + 0.3 * (campaign.integrity / 100);
+
+    const dockingThresholdScale = (effects.dockingThresholdScale || 1) * integrityScale;
+    const fuelBudgetScale = effects.fuelBudgetScale || 1;
+    const csmSpeedScale = effects.csmSpeedScale || 1;
+    const rcsScale = effects.rcsScale || 1;
+
+    return {
+        startingFuel: Math.max(CAMPAIGN_MIN_FUEL_BUDGET, campaign.fuelBudget * fuelBudgetScale),
+        dockingThresholdX: DOCKING_VEL_THRESHOLD_X * dockingThresholdScale,
+        dockingThresholdY: DOCKING_VEL_THRESHOLD_Y * dockingThresholdScale,
+        csmSpeed: CSM_SPEED * csmSpeedScale,
+        rcsScale: rcsScale
+    };
+}
+
+export function resolveCampaignDay(campaign, missionOutcome) {
+    const updated = { ...campaign };
+    const logEntry = {
+        day: campaign.day,
+        outcome: null,
+        modifierId: campaign.activeModifier ? campaign.activeModifier.id : 'normal',
+        fuelRemaining: Math.floor(missionOutcome.fuelRemaining || 0),
+        integrityDelta: 0,
+        fuelBudgetDelta: 0,
+        suppliesDelta: 0
+    };
+
+    if (missionOutcome.success) {
+        logEntry.outcome = 'success';
+        logEntry.integrityDelta = Math.min(5, 100 - campaign.integrity);
+        logEntry.fuelBudgetDelta = Math.min(5, 100 - campaign.fuelBudget);
+        logEntry.suppliesDelta = campaign.supplies < CAMPAIGN_MAX_SUPPLIES ? 1 : 0;
+
+        updated.integrity = Math.min(100, campaign.integrity + logEntry.integrityDelta);
+        updated.fuelBudget = Math.min(100, campaign.fuelBudget + logEntry.fuelBudgetDelta);
+        updated.supplies = Math.min(CAMPAIGN_MAX_SUPPLIES, campaign.supplies + logEntry.suppliesDelta);
+        updated.streak = campaign.streak + 1;
+        updated.lastOutcome = 'success';
+    } else {
+        const isSevere = missionOutcome.type === 'crashed' || missionOutcome.type === 'fuel_depleted';
+
+        if (isSevere) {
+            logEntry.outcome = 'severe_failure';
+            logEntry.integrityDelta = -25;
+            logEntry.fuelBudgetDelta = -20;
+            logEntry.suppliesDelta = campaign.supplies > 0 ? -1 : 0;
+        } else {
+            logEntry.outcome = 'rough_failure';
+            logEntry.integrityDelta = -15;
+            logEntry.fuelBudgetDelta = -10;
+            logEntry.suppliesDelta = campaign.supplies > 0 ? -1 : 0;
+        }
+
+        updated.integrity = Math.max(0, campaign.integrity + logEntry.integrityDelta);
+        updated.fuelBudget = Math.max(CAMPAIGN_MIN_FUEL_BUDGET, campaign.fuelBudget + logEntry.fuelBudgetDelta);
+        updated.supplies = Math.max(0, campaign.supplies + logEntry.suppliesDelta);
+        updated.streak = 0;
+        updated.lastOutcome = logEntry.outcome;
+    }
+
+    // Auto-repair from supplies between days
+    if (updated.supplies > 0 && updated.integrity < 100) {
+        const repairAmount = Math.min(CAMPAIGN_INTEGRITY_PER_SUPPLY, 100 - updated.integrity);
+        updated.integrity += repairAmount;
+    }
+
+    // Advance day
+    updated.day = campaign.day + 1;
+
+    // Select modifier for next day
+    updated.activeModifier = selectCampaignModifier(updated);
+
+    // Append log
+    updated.missionLog = appendMissionLog(campaign.missionLog, logEntry);
+
+    return { campaign: updated, logEntry };
+}
+
+export function appendMissionLog(log, entry) {
+    const newLog = [...(log || []), entry];
+    if (newLog.length > CAMPAIGN_MAX_LOG_ENTRIES) {
+        return newLog.slice(newLog.length - CAMPAIGN_MAX_LOG_ENTRIES);
+    }
+    return newLog;
+}
+
 // ===== Particle System =====
 export class Particle {
     constructor(x, y, vx, vy, life, color) {
@@ -238,17 +433,20 @@ export function applyScreenWrap(x) {
 }
 
 // ===== Get approach status color based on relative velocity =====
-export function getApproachStatus(relVx, relVy) {
+export function getApproachStatus(relVx, relVy, missionConfig) {
+    const threshX = missionConfig ? missionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
+    const threshY = missionConfig ? missionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
     // Green: Both velocities safe for docking
     if (relVx < 0.5 && relVy < 0.5) return '#44ff44'; // Green
     // Yellow: At least one velocity in caution range
-    if (relVx < DOCKING_VEL_THRESHOLD_X && relVy < DOCKING_VEL_THRESHOLD_Y) return '#ffff44'; // Yellow
+    if (relVx < threshX && relVy < threshY) return '#ffff44'; // Yellow
     // Red: Too fast for docking
     return '#ff4444'; // Red
 }
 
 // ===== LM Factory =====
 export function createLM(initialState = {}) {
+    const rcsScale = initialState.rcsScale ?? 1;
     return {
         x: initialState.x ?? CANVAS_WIDTH / 2,
         y: initialState.y ?? GROUND_Y - 30,
@@ -274,19 +472,19 @@ export function createLM(initialState = {}) {
                 }
                 // RCS Down (Down Arrow -> Force Down)
                 if (currentKeys['ArrowDown']) {
-                    this.vy += RCS_THRUST * dt;
+                    this.vy += RCS_THRUST * rcsScale * dt;
                     this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x, this.y - this.height/2, 'up');
                 }
                 // RCS Left (Left Arrow -> Force Left)
                 if (currentKeys['ArrowLeft']) {
-                    this.vx -= RCS_THRUST * dt;
+                    this.vx -= RCS_THRUST * rcsScale * dt;
                     this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x + this.width/2, this.y, 'right');
                 }
                 // RCS Right (Right Arrow -> Force Right)
                 if (currentKeys['ArrowRight']) {
-                    this.vx += RCS_THRUST * dt;
+                    this.vx += RCS_THRUST * rcsScale * dt;
                     this.fuel -= FUEL_RCS_COST * dt;
                     if (callbacks.onRcsThrust) callbacks.onRcsThrust(this.x - this.width/2, this.y, 'left');
                 }
@@ -347,9 +545,10 @@ export function createCSM(initialState = {}) {
         y: initialState.y ?? CSM_ORBIT_Y,
         width: 50,
         height: 20,
+        speed: initialState.speed ?? CSM_SPEED,
 
         update: function(dt = 1 / TARGET_FPS) {
-            this.x += CSM_SPEED * dt * TARGET_FPS;
+            this.x += this.speed * dt * TARGET_FPS;
             this.x = applyScreenWrap(this.x);
         },
 
@@ -360,7 +559,7 @@ export function createCSM(initialState = {}) {
 }
 
 // ===== Collision Detection =====
-export function checkDockingCollision(lm, csm) {
+export function checkDockingCollision(lm, csm, missionConfig) {
     // LM bounds
     const lmLeft = lm.x - 15;
     const lmRight = lm.x + 15;
@@ -387,10 +586,13 @@ export function checkDockingCollision(lm, csm) {
                              lmBottom > csmTop && lmTop < csmBottom);
 
     if (inDockingZone) {
-        const relVx = Math.abs(lm.vx - CSM_SPEED);
+        const csmSpeed = csm.speed ?? CSM_SPEED;
+        const threshX = missionConfig ? missionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
+        const threshY = missionConfig ? missionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
+        const relVx = Math.abs(lm.vx - csmSpeed);
         const relVy = Math.abs(lm.vy);
 
-        if (relVx < DOCKING_VEL_THRESHOLD_X && relVy < DOCKING_VEL_THRESHOLD_Y) {
+        if (relVx < threshX && relVy < threshY) {
             return { type: 'docking_success', relVx, relVy };
         } else {
             return { type: 'docking_failed_velocity', relVx, relVy };
@@ -665,12 +867,19 @@ export function createGameController(options = {}) {
     let touchControls, touchButtons;
     let achievementNotification, achievementName, achievementDesc;
     let trophyGrid, trophyStats;
+    let campaignStartOverlay, campaignDayNumber, campaignCondition;
+    let campaignFuelBudget, campaignSupplies, campaignModifier;
+
+    // Campaign state
+    let localCampaign = loadCampaign();
+    let localMissionConfig = null;
+    let localOutcomeType = null;
 
     // Game objects
     let lm = createLM();
     let csm = createCSM();
     let starList = [];
-    let localGameState = 'playing';
+    let localGameState = 'campaign_start';
     let localKeys = {};
     let localGameStartTime = Date.now();
     let localScreenShake = 0;
@@ -709,6 +918,12 @@ export function createGameController(options = {}) {
         achievementDesc = document.getElementById('achievement-desc');
         trophyGrid = document.getElementById('trophy-grid');
         trophyStats = document.getElementById('trophy-stats');
+        campaignStartOverlay = document.getElementById('campaign-start-overlay');
+        campaignDayNumber = document.getElementById('campaign-day-number');
+        campaignCondition = document.getElementById('campaign-condition');
+        campaignFuelBudget = document.getElementById('campaign-fuel-budget');
+        campaignSupplies = document.getElementById('campaign-supplies');
+        campaignModifier = document.getElementById('campaign-modifier');
 
         // Generate stars with twinkle properties
         for(let i=0; i<STAR_COUNT; i++) {
@@ -766,14 +981,29 @@ export function createGameController(options = {}) {
             }
 
             // Restart with SPACE
-            if (e.code === 'Space' && (localGameState === 'won' || localGameState === 'lost')) {
-                resetGame();
+            if (e.code === 'Space') {
+                if (localGameState === 'campaign_start') {
+                    startDay();
+                    e.preventDefault();
+                } else if (localGameState === 'won' || localGameState === 'lost') {
+                    advanceToNextDay();
+                    e.preventDefault();
+                }
             }
         });
 
         window.addEventListener('keyup', (e) => {
             localKeys[e.key] = false;
         });
+
+        // New Campaign event from overlay button
+        if (typeof document !== 'undefined') {
+            document.addEventListener('newCampaign', () => {
+                localCampaign = resetCampaign();
+                localMissionConfig = null;
+                showCampaignStart();
+            });
+        }
 
         // Touch controls
         initTouchControls();
@@ -940,8 +1170,88 @@ export function createGameController(options = {}) {
         }
     }
 
-    function endGame(success, message) {
+    function prepareCampaignDay() {
+        // Select modifier for day 1 if not set
+        if (!localCampaign.activeModifier) {
+            localCampaign.activeModifier = selectCampaignModifier(localCampaign);
+        }
+        localMissionConfig = createMissionConfigFromCampaign(localCampaign);
+    }
+
+    function showCampaignStart() {
+        if (!campaignStartOverlay) return;
+
+        prepareCampaignDay();
+
+        if (campaignDayNumber) campaignDayNumber.innerText = `DAY ${localCampaign.day}`;
+        if (campaignCondition) {
+            const bar = '█'.repeat(Math.round(localCampaign.integrity / 10)) +
+                        '░'.repeat(10 - Math.round(localCampaign.integrity / 10));
+            campaignCondition.innerText = `${bar} ${localCampaign.integrity}%`;
+            campaignCondition.style.color = localCampaign.integrity > 50 ? '#44ff44' :
+                                            localCampaign.integrity > 25 ? '#ffff44' : '#ff4444';
+        }
+        if (campaignFuelBudget) campaignFuelBudget.innerText = `${Math.floor(localMissionConfig.startingFuel)}%`;
+        if (campaignSupplies) campaignSupplies.innerText = `${'█'.repeat(localCampaign.supplies)}${'░'.repeat(CAMPAIGN_MAX_SUPPLIES - localCampaign.supplies)} ${localCampaign.supplies}`;
+
+        if (campaignModifier && localCampaign.activeModifier) {
+            campaignModifier.innerHTML = `<strong>${localCampaign.activeModifier.name}</strong><br>${localCampaign.activeModifier.description}`;
+        }
+
+        campaignStartOverlay.style.display = 'block';
+        localGameState = 'campaign_start';
+    }
+
+    function startDay() {
+        if (campaignStartOverlay) campaignStartOverlay.style.display = 'none';
+        if (!localMissionConfig) prepareCampaignDay();
+
+        lm = createLM({ fuel: localMissionConfig.startingFuel, rcsScale: localMissionConfig.rcsScale });
+        csm = createCSM({ speed: localMissionConfig.csmSpeed });
+        localParticles.length = 0;
+        localCelebrationParticles.length = 0;
+        localScreenShake = 0;
+        localOutcomeType = null;
+        localGameStartTime = Date.now();
+        lastFrameTime = 0;
+        localGameState = 'playing';
+    }
+
+    function advanceToNextDay() {
+        if (msgOverlay) msgOverlay.style.display = 'none';
+
+        // Resolve campaign day
+        const timeElapsed = Date.now() - localGameStartTime;
+        const csmSpeed = csm.speed ?? CSM_SPEED;
+        const relVx = Math.abs(lm.vx - csmSpeed);
+        const relVy = Math.abs(lm.vy);
+        const score = calculateScore(lm.fuel, timeElapsed, relVx, relVy);
+
+        const missionOutcome = {
+            success: localGameState === 'won',
+            type: localOutcomeType || (localGameState === 'won' ? 'docking_success' : 'unknown'),
+            fuelRemaining: lm.fuel,
+            relVx,
+            relVy,
+            score
+        };
+
+        const result = resolveCampaignDay(localCampaign, missionOutcome);
+        localCampaign = result.campaign;
+        saveCampaign(localCampaign);
+
+        // Reset for next day
+        localParticles.length = 0;
+        localCelebrationParticles.length = 0;
+        localScreenShake = 0;
+        localMissionConfig = null;
+
+        showCampaignStart();
+    }
+
+    function endGame(success, message, outcomeType) {
         localGameState = success ? 'won' : 'lost';
+        localOutcomeType = outcomeType || null;
 
         if (msgTitle) {
             msgTitle.innerText = success ? "MISSION ACCOMPLISHED" : "MISSION FAILED";
@@ -951,7 +1261,8 @@ export function createGameController(options = {}) {
 
         if (success) {
             const timeElapsed = Date.now() - localGameStartTime;
-            const relVx = Math.abs(lm.vx - CSM_SPEED);
+            const csmSpeed = csm.speed ?? CSM_SPEED;
+            const relVx = Math.abs(lm.vx - csmSpeed);
             const relVy = Math.abs(lm.vy);
             const score = calculateScore(lm.fuel, timeElapsed, relVx, relVy);
 
@@ -982,11 +1293,42 @@ export function createGameController(options = {}) {
                 if (newAchievements.length > 0) {
                     msgDetail.innerText += `\n\n🏆 ${newAchievements.length} Achievement${newAchievements.length > 1 ? 's' : ''} Unlocked!`;
                 }
+
+                // Campaign day preview
+                const previewOutcome = {
+                    success: true,
+                    type: outcomeType || 'docking_success',
+                    fuelRemaining: lm.fuel,
+                    relVx, relVy, score
+                };
+                const preview = resolveCampaignDay(localCampaign, previewOutcome);
+                const entry = preview.logEntry;
+                msgDetail.innerText += `\n\n─── Day ${localCampaign.day} Summary ───`;
+                msgDetail.innerText += `\nIntegrity: ${localCampaign.integrity}% → ${preview.campaign.integrity}%`;
+                msgDetail.innerText += `\nFuel Budget: ${localCampaign.fuelBudget}% → ${preview.campaign.fuelBudget}%`;
+                msgDetail.innerText += `\nSupplies: ${localCampaign.supplies} → ${preview.campaign.supplies}`;
+                if (preview.campaign.streak > 1) {
+                    msgDetail.innerText += `\n🔥 Streak: ${preview.campaign.streak} days`;
+                }
             }
 
             playSound('dock_success');
             spawnCelebration(lm.x, lm.y, localCelebrationParticles);
         } else {
+            if (msgDetail) {
+                const previewOutcome = {
+                    success: false,
+                    type: outcomeType || 'unknown',
+                    fuelRemaining: lm.fuel,
+                    relVx: 0, relVy: 0, score: 0
+                };
+                const preview = resolveCampaignDay(localCampaign, previewOutcome);
+                msgDetail.innerText += `\n\n─── Day ${localCampaign.day} Summary ───`;
+                msgDetail.innerText += `\nIntegrity: ${localCampaign.integrity}% → ${preview.campaign.integrity}%`;
+                msgDetail.innerText += `\nFuel Budget: ${localCampaign.fuelBudget}% → ${preview.campaign.fuelBudget}%`;
+                msgDetail.innerText += `\nSupplies: ${localCampaign.supplies} → ${preview.campaign.supplies}`;
+            }
+
             playSound('collision');
             localScreenShake = 15;
         }
@@ -995,7 +1337,7 @@ export function createGameController(options = {}) {
     }
 
     function resetGame() {
-        localGameState = 'playing';
+        localGameState = 'campaign_start';
         localGameStartTime = Date.now();
         if (msgOverlay) msgOverlay.style.display = 'none';
         if (pauseOverlay) pauseOverlay.style.display = 'none';
@@ -1006,20 +1348,22 @@ export function createGameController(options = {}) {
         localCelebrationParticles.length = 0;
         localScreenShake = 0;
         lastFrameTime = 0;
+        localMissionConfig = null;
+        showCampaignStart();
     }
 
     function checkCollisions() {
-        const result = checkDockingCollision(lm, csm);
+        const result = checkDockingCollision(lm, csm, localMissionConfig);
 
         switch (result.type) {
             case 'docking_success':
-                endGame(true, "Docking Successful!");
+                endGame(true, "Docking Successful!", 'docking_success');
                 break;
             case 'docking_failed_velocity':
-                endGame(false, "Docking failed! Approach velocity too high.\nTip: Match CSM speed (→) and slow your vertical velocity.");
+                endGame(false, "Docking failed! Approach velocity too high.\nTip: Match CSM speed (→) and slow your vertical velocity.", 'docking_failed_velocity');
                 break;
             case 'collision_wrong_angle':
-                endGame(false, "Collision! Wrong approach angle.\nTip: Approach the docking port from BELOW the CSM.");
+                endGame(false, "Collision! Wrong approach angle.\nTip: Approach the docking port from BELOW the CSM.", 'collision_wrong_angle');
                 break;
         }
     }
@@ -1037,7 +1381,8 @@ export function createGameController(options = {}) {
         const distance = Math.sqrt(dx * dx + dy * dy);
         uiDistanceCSM.innerText = Math.floor(distance);
 
-        const relVxRaw = lm.vx - CSM_SPEED;
+        const csmSpeed = csm.speed ?? CSM_SPEED;
+        const relVxRaw = lm.vx - csmSpeed;
         const relVx = Math.abs(relVxRaw);
         const relVyRaw = lm.vy;
         const relVy = Math.abs(relVyRaw);
@@ -1061,8 +1406,10 @@ export function createGameController(options = {}) {
             uiVyHint.style.color = '#44ff44';
         }
 
-        uiRelVx.style.color = relVx < 0.5 ? '#44ff44' : (relVx < DOCKING_VEL_THRESHOLD_X ? '#ffff44' : '#ff4444');
-        uiRelVy.style.color = relVy < 0.5 ? '#44ff44' : (relVy < DOCKING_VEL_THRESHOLD_Y ? '#ffff44' : '#ff4444');
+        const threshX = localMissionConfig ? localMissionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
+        const threshY = localMissionConfig ? localMissionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
+        uiRelVx.style.color = relVx < 0.5 ? '#44ff44' : (relVx < threshX ? '#ffff44' : '#ff4444');
+        uiRelVy.style.color = relVy < 0.5 ? '#44ff44' : (relVy < threshY ? '#ffff44' : '#ff4444');
 
         if (lm.fuel < FUEL_WARNING_THRESHOLD) uiFuel.style.color = 'red';
         else uiFuel.style.color = 'white';
@@ -1301,9 +1648,10 @@ export function createGameController(options = {}) {
 
         drawTrajectoryPrediction();
 
-        const relVx = Math.abs(lm.vx - CSM_SPEED);
+        const csmSpeed = csm.speed ?? CSM_SPEED;
+        const relVx = Math.abs(lm.vx - csmSpeed);
         const relVy = Math.abs(lm.vy);
-        const statusColor = getApproachStatus(relVx, relVy);
+        const statusColor = getApproachStatus(relVx, relVy, localMissionConfig);
         const isAligned = (statusColor === '#44ff44');
 
         drawDockingTarget(csm.x, csm.y, isAligned);
@@ -1386,8 +1734,8 @@ export function createGameController(options = {}) {
                     playRcsSound();
                 },
                 onLowFuel: () => playAlarmSound(),
-                onCrash: (msg) => endGame(false, msg),
-                onFuelDepleted: () => endGame(false, "Fuel Depleted! Unable to control craft.")
+                onCrash: (msg) => endGame(false, msg, 'crashed'),
+                onFuelDepleted: () => endGame(false, "Fuel Depleted! Unable to control craft.", 'fuel_depleted')
             };
 
             const status = lm.update(localKeys, localGameState, callbacks, dt);
@@ -1450,6 +1798,8 @@ export function createGameController(options = {}) {
             }
             initInputHandlers();
             showTutorialIfFirstVisit();
+            prepareCampaignDay();
+            showCampaignStart();
             return true;
         },
         start: function() {
@@ -1463,7 +1813,15 @@ export function createGameController(options = {}) {
         resetGame,
         togglePause,
         toggleTrophyRoom,
-        toggleHelp
+        toggleHelp,
+        getCampaign: () => localCampaign,
+        getMissionConfig: () => localMissionConfig,
+        startDay,
+        newCampaign: function() {
+            localCampaign = resetCampaign();
+            localMissionConfig = null;
+            showCampaignStart();
+        }
     };
 }
 

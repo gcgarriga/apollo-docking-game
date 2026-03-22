@@ -40,7 +40,7 @@
             margin-bottom: 5px;
             font-size: 14px;
         }
-        #message-overlay, #pause-overlay, #tutorial-overlay {
+        #message-overlay, #pause-overlay, #tutorial-overlay, #campaign-start-overlay {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -52,6 +52,10 @@
             border: 1px solid white;
             max-height: 80vh;
             overflow-y: auto;
+        }
+        #campaign-start-overlay {
+            border-color: #ffd700;
+            min-width: 360px;
         }
         h1 { margin: 0 0 10px 0; font-size: 24px; color: #ffd700; }
         p { margin: 5px 0; }
@@ -243,7 +247,21 @@
     <div id="message-overlay">
         <h1 id="msg-title">Mission Status</h1>
         <p id="msg-detail">Details here</p>
-        <p class="instructions">Press SPACE to Restart</p>
+        <p class="instructions">Press SPACE for Next Day</p>
+    </div>
+
+    <div id="campaign-start-overlay">
+        <h1 id="campaign-day-number" style="color: #ffd700; font-size: 28px; letter-spacing: 4px;">DAY 1</h1>
+        <div style="text-align: left; max-width: 320px; margin: 15px auto; line-height: 1.8;">
+            <div class="stat-line">Craft Condition: <span id="campaign-condition" style="color: #44ff44;">██████████ 100%</span></div>
+            <div class="stat-line">Fuel Budget: <span id="campaign-fuel-budget">100%</span></div>
+            <div class="stat-line">Supplies: <span id="campaign-supplies">███░░ 3</span></div>
+        </div>
+        <div id="campaign-modifier" style="margin: 15px 0; padding: 10px; border: 1px solid #444; font-size: 12px; color: #aaa;">
+            <strong>Standard Conditions</strong><br>No special conditions today.
+        </div>
+        <p class="instructions">Press SPACE to Begin Mission</p>
+        <p style="font-size: 10px; color: #555; margin-top: 15px; cursor: pointer;" onclick="document.dispatchEvent(new CustomEvent('newCampaign'))">[ New Campaign ]</p>
     </div>
 
     <div id="pause-overlay">

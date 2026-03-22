@@ -6,3 +6,4 @@ coverage/
 
 # Project specification (local only)
 spec.md
+.gspec/
