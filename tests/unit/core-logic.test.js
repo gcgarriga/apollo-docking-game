@@ -106,6 +106,17 @@ describe('Approach status', () => {
     it('returns red for dangerous velocity', () => {
         expect(getApproachStatus(2.0, 2.0)).toBe('#ff4444');
     });
+
+    it('returns red when velocity exceeds tight missionConfig threshold', () => {
+        const tightConfig = { dockingThresholdX: 0.3, dockingThresholdY: 0.3 };
+        // relVx=0.4 is below default 0.5 safe zone but above tight threshold of 0.3 → red
+        expect(getApproachStatus(0.4, 0.4, tightConfig)).toBe('#ff4444');
+    });
+
+    it('returns green when velocity is below tight missionConfig threshold', () => {
+        const tightConfig = { dockingThresholdX: 0.3, dockingThresholdY: 0.3 };
+        expect(getApproachStatus(0.2, 0.2, tightConfig)).toBe('#44ff44');
+    });
 });
 
 describe('Docking collision', () => {

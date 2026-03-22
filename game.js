@@ -438,8 +438,10 @@ export function applyScreenWrap(x) {
 export function getApproachStatus(relVx, relVy, missionConfig) {
     const threshX = missionConfig ? missionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
     const threshY = missionConfig ? missionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
-    // Green: Both velocities safe for docking
-    if (relVx < 0.5 && relVy < 0.5) return '#44ff44'; // Green
+    const safeThreshX = Math.min(0.5, threshX);
+    const safeThreshY = Math.min(0.5, threshY);
+    // Green: Both velocities comfortably within docking limits
+    if (relVx < safeThreshX && relVy < safeThreshY) return '#44ff44'; // Green
     // Yellow: At least one velocity in caution range
     if (relVx < threshX && relVy < threshY) return '#ffff44'; // Yellow
     // Red: Too fast for docking
@@ -1402,7 +1404,12 @@ export function createGameController(options = {}) {
         uiRelVx.innerText = (relVx * 10).toFixed(1);
         uiRelVy.innerText = (relVy * 10).toFixed(1);
 
-        if (relVx > 0.5) {
+        const threshX = localMissionConfig ? localMissionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
+        const threshY = localMissionConfig ? localMissionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
+        const safeThreshX = Math.min(0.5, threshX);
+        const safeThreshY = Math.min(0.5, threshY);
+
+        if (relVx > safeThreshX) {
             uiVxHint.innerText = relVxRaw < 0 ? '(press →)' : '(press ←)';
             uiVxHint.style.color = '#ffaa00';
         } else {
@@ -1410,7 +1417,7 @@ export function createGameController(options = {}) {
             uiVxHint.style.color = '#44ff44';
         }
 
-        if (relVy > 0.5) {
+        if (relVy > safeThreshY) {
             uiVyHint.innerText = relVyRaw > 0 ? '(press ↑)' : '(press ↓)';
             uiVyHint.style.color = '#ffaa00';
         } else {
@@ -1418,10 +1425,8 @@ export function createGameController(options = {}) {
             uiVyHint.style.color = '#44ff44';
         }
 
-        const threshX = localMissionConfig ? localMissionConfig.dockingThresholdX : DOCKING_VEL_THRESHOLD_X;
-        const threshY = localMissionConfig ? localMissionConfig.dockingThresholdY : DOCKING_VEL_THRESHOLD_Y;
-        uiRelVx.style.color = relVx < 0.5 ? '#44ff44' : (relVx < threshX ? '#ffff44' : '#ff4444');
-        uiRelVy.style.color = relVy < 0.5 ? '#44ff44' : (relVy < threshY ? '#ffff44' : '#ff4444');
+        uiRelVx.style.color = relVx < safeThreshX ? '#44ff44' : (relVx < threshX ? '#ffff44' : '#ff4444');
+        uiRelVy.style.color = relVy < safeThreshY ? '#44ff44' : (relVy < threshY ? '#ffff44' : '#ff4444');
 
         if (lm.fuel < FUEL_WARNING_THRESHOLD) uiFuel.style.color = 'red';
         else uiFuel.style.color = 'white';
