@@ -9,9 +9,10 @@ import {
     CANVAS_WIDTH, GROUND_Y, CSM_SPEED, DOCKING_VEL_THRESHOLD_X,
     DOCKING_VEL_THRESHOLD_Y,
     createDefaultCampaign, loadCampaign, saveCampaign, resetCampaign,
-    selectCampaignModifier, createMissionConfigFromCampaign, resolveCampaignDay,
+    validateCampaign, selectCampaignModifier, createMissionConfigFromCampaign, resolveCampaignDay,
     appendMissionLog, CAMPAIGN_MODIFIERS, CAMPAIGN_MAX_SUPPLIES,
-    CAMPAIGN_MIN_FUEL_BUDGET, CAMPAIGN_MAX_LOG_ENTRIES, CAMPAIGN_VERSION
+    CAMPAIGN_MIN_FUEL_BUDGET, CAMPAIGN_MAX_LOG_ENTRIES, CAMPAIGN_VERSION,
+    CAMPAIGN_VALID_OUTCOMES
 } from '../../game.js';
 
 describe('Physics utilities', () => {
@@ -195,6 +196,13 @@ describe('Campaign persistence', () => {
         expect(localStorage.getItem('apolloCampaign')).toBeNull();
     });
 
+    it('discards save on version mismatch and clears storage', () => {
+        localStorage.setItem('apolloCampaign', JSON.stringify({ version: 0, day: 5 }));
+        const c = loadCampaign();
+        expect(c.day).toBe(1);
+        expect(localStorage.getItem('apolloCampaign')).toBeNull();
+    });
+
     it('resets campaign and returns defaults', () => {
         const c = createDefaultCampaign();
         c.day = 10;
@@ -202,6 +210,82 @@ describe('Campaign persistence', () => {
         const fresh = resetCampaign();
         expect(fresh.day).toBe(1);
         expect(localStorage.getItem('apolloCampaign')).toBeNull();
+    });
+});
+
+describe('validateCampaign', () => {
+    it('returns valid campaign unchanged', () => {
+        const c = createDefaultCampaign();
+        c.day = 7;
+        c.integrity = 80;
+        const v = validateCampaign(c);
+        expect(v.day).toBe(7);
+        expect(v.integrity).toBe(80);
+    });
+
+    it('falls back to default day when missing or non-integer', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), day: undefined }).day).toBe(1);
+        expect(validateCampaign({ ...createDefaultCampaign(), day: 1.5 }).day).toBe(1);
+        expect(validateCampaign({ ...createDefaultCampaign(), day: 0 }).day).toBe(1);
+        expect(validateCampaign({ ...createDefaultCampaign(), day: -3 }).day).toBe(1);
+        expect(validateCampaign({ ...createDefaultCampaign(), day: 'five' }).day).toBe(1);
+    });
+
+    it('clamps integrity to 0–100', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), integrity: -10 }).integrity).toBe(0);
+        expect(validateCampaign({ ...createDefaultCampaign(), integrity: 150 }).integrity).toBe(100);
+        expect(validateCampaign({ ...createDefaultCampaign(), integrity: NaN }).integrity).toBe(100);
+        expect(validateCampaign({ ...createDefaultCampaign(), integrity: 'bad' }).integrity).toBe(100);
+    });
+
+    it('clamps supplies to 0–CAMPAIGN_MAX_SUPPLIES', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), supplies: -1 }).supplies).toBe(0);
+        expect(validateCampaign({ ...createDefaultCampaign(), supplies: 99 }).supplies).toBe(CAMPAIGN_MAX_SUPPLIES);
+        expect(validateCampaign({ ...createDefaultCampaign(), supplies: 2.5 }).supplies).toBe(3);
+    });
+
+    it('clamps fuelBudget to CAMPAIGN_MIN_FUEL_BUDGET–100', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), fuelBudget: 0 }).fuelBudget).toBe(CAMPAIGN_MIN_FUEL_BUDGET);
+        expect(validateCampaign({ ...createDefaultCampaign(), fuelBudget: 200 }).fuelBudget).toBe(100);
+        expect(validateCampaign({ ...createDefaultCampaign(), fuelBudget: NaN }).fuelBudget).toBe(100);
+    });
+
+    it('falls back to default streak when invalid', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), streak: -1 }).streak).toBe(0);
+        expect(validateCampaign({ ...createDefaultCampaign(), streak: 'many' }).streak).toBe(0);
+    });
+
+    it('preserves valid lastOutcome values and rejects unknown ones', () => {
+        for (const outcome of CAMPAIGN_VALID_OUTCOMES) {
+            expect(validateCampaign({ ...createDefaultCampaign(), lastOutcome: outcome }).lastOutcome).toBe(outcome);
+        }
+        expect(validateCampaign({ ...createDefaultCampaign(), lastOutcome: null }).lastOutcome).toBeNull();
+        expect(validateCampaign({ ...createDefaultCampaign(), lastOutcome: 'hacked' }).lastOutcome).toBeNull();
+        expect(validateCampaign({ ...createDefaultCampaign(), lastOutcome: 42 }).lastOutcome).toBeNull();
+    });
+
+    it('preserves valid activeModifier and rejects unknown ones', () => {
+        const mod = CAMPAIGN_MODIFIERS[0];
+        expect(validateCampaign({ ...createDefaultCampaign(), activeModifier: mod }).activeModifier).toEqual(mod);
+        expect(validateCampaign({ ...createDefaultCampaign(), activeModifier: null }).activeModifier).toBeNull();
+        expect(validateCampaign({ ...createDefaultCampaign(), activeModifier: { id: 'fake-mod' } }).activeModifier).toBeNull();
+        expect(validateCampaign({ ...createDefaultCampaign(), activeModifier: 'string' }).activeModifier).toBeNull();
+    });
+
+    it('replaces non-array missionLog with empty array', () => {
+        expect(validateCampaign({ ...createDefaultCampaign(), missionLog: null }).missionLog).toEqual([]);
+        expect(validateCampaign({ ...createDefaultCampaign(), missionLog: 'log' }).missionLog).toEqual([]);
+        expect(validateCampaign({ ...createDefaultCampaign(), missionLog: [{ day: 1 }] }).missionLog).toEqual([{ day: 1 }]);
+    });
+
+    it('loadCampaign validates a partially corrupt save', () => {
+        const partial = { version: CAMPAIGN_VERSION, day: 99, integrity: 9999, supplies: -5, fuelBudget: 0 };
+        localStorage.setItem('apolloCampaign', JSON.stringify(partial));
+        const c = loadCampaign();
+        expect(c.day).toBe(99);
+        expect(c.integrity).toBe(100);
+        expect(c.supplies).toBe(0);
+        expect(c.fuelBudget).toBe(CAMPAIGN_MIN_FUEL_BUDGET);
     });
 });
 

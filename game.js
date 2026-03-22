@@ -178,6 +178,7 @@ export const CAMPAIGN_MAX_LOG_ENTRIES = 15;
 export const CAMPAIGN_MIN_FUEL_BUDGET = 40;
 export const CAMPAIGN_MAX_SUPPLIES = 5;
 export const CAMPAIGN_INTEGRITY_PER_SUPPLY = 5;
+export const CAMPAIGN_VALID_OUTCOMES = ['success', 'rough_failure', 'severe_failure'];
 
 export const CAMPAIGN_MODIFIERS = [
     {
@@ -232,6 +233,57 @@ export function createDefaultCampaign() {
     };
 }
 
+/**
+ * Merges a parsed save object with defaults, validating and clamping every
+ * field so that missing or out-of-range values can never propagate into
+ * createMissionConfigFromCampaign() or other consumers.
+ */
+export function validateCampaign(parsed) {
+    const defaults = createDefaultCampaign();
+
+    const day = Number.isInteger(parsed.day) && parsed.day >= 1
+        ? parsed.day : defaults.day;
+
+    const integrity = typeof parsed.integrity === 'number' && isFinite(parsed.integrity)
+        ? Math.min(100, Math.max(0, parsed.integrity)) : defaults.integrity;
+
+    const supplies = Number.isInteger(parsed.supplies)
+        ? Math.min(CAMPAIGN_MAX_SUPPLIES, Math.max(0, parsed.supplies)) : defaults.supplies;
+
+    const fuelBudget = typeof parsed.fuelBudget === 'number' && isFinite(parsed.fuelBudget)
+        ? Math.min(100, Math.max(CAMPAIGN_MIN_FUEL_BUDGET, parsed.fuelBudget)) : defaults.fuelBudget;
+
+    const streak = Number.isInteger(parsed.streak)
+        ? Math.max(0, parsed.streak) : defaults.streak;
+
+    const lastOutcome = parsed.lastOutcome === null || CAMPAIGN_VALID_OUTCOMES.includes(parsed.lastOutcome)
+        ? parsed.lastOutcome : defaults.lastOutcome;
+
+    const knownModifierIds = new Set(CAMPAIGN_MODIFIERS.map(m => m.id));
+    const activeModifier =
+        parsed.activeModifier === null
+            ? null
+            : (parsed.activeModifier &&
+               typeof parsed.activeModifier === 'object' &&
+               knownModifierIds.has(parsed.activeModifier.id))
+                ? parsed.activeModifier
+                : defaults.activeModifier;
+
+    const missionLog = Array.isArray(parsed.missionLog) ? parsed.missionLog : defaults.missionLog;
+
+    return {
+        version: CAMPAIGN_VERSION,
+        day,
+        integrity,
+        supplies,
+        fuelBudget,
+        streak,
+        lastOutcome,
+        activeModifier,
+        missionLog
+    };
+}
+
 export function loadCampaign() {
     const defaults = createDefaultCampaign();
     if (typeof localStorage === 'undefined') return defaults;
@@ -240,8 +292,10 @@ export function loadCampaign() {
         if (saved) {
             const parsed = JSON.parse(saved);
             if (parsed && parsed.version === CAMPAIGN_VERSION) {
-                return parsed;
+                return validateCampaign(parsed);
             }
+            // Version mismatch: discard stale save
+            localStorage.removeItem('apolloCampaign');
         }
     } catch (e) {
         localStorage.removeItem('apolloCampaign');
