@@ -3,6 +3,11 @@ import {
     createLM, createCSM, createGameController,
     CSM_ORBIT_Y, CSM_SPEED, CANVAS_WIDTH, GROUND_Y, CRASH_VEL_THRESHOLD,
     GRAVITY, MAIN_THRUST, FUEL_MAIN_COST, RCS_THRUST, TARGET_FPS,
+    createDefaultCampaign, loadCampaign, saveCampaign, resetCampaign,
+    selectCampaignModifier, createMissionConfigFromCampaign, resolveCampaignDay,
+    appendMissionLog, CAMPAIGN_MODIFIERS, CAMPAIGN_MAX_SUPPLIES,
+    CAMPAIGN_MIN_FUEL_BUDGET, CAMPAIGN_VERSION,
+    loadAchievements,
 } from '../../game.js';
 
 const DT = 1 / TARGET_FPS;
@@ -109,6 +114,7 @@ describe('Game Controller', () => {
     it('initializes and toggles pause', () => {
         const ctrl = createGameController();
         ctrl.init();
+        ctrl.startDay(); // advance from campaign_start to playing
         ctrl.togglePause();
         expect(ctrl.getGameState()).toBe('paused');
         ctrl.togglePause();
@@ -118,14 +124,16 @@ describe('Game Controller', () => {
     it('resets game state', () => {
         const ctrl = createGameController();
         ctrl.init();
+        ctrl.startDay();
         ctrl.togglePause();
         ctrl.resetGame();
-        expect(ctrl.getGameState()).toBe('playing');
+        expect(ctrl.getGameState()).toBe('campaign_start');
     });
 
     it('starts without poisoning game state with NaN values', async () => {
         const ctrl = createGameController();
         ctrl.init();
+        ctrl.startDay();
         ctrl.start();
 
         await new Promise((resolve) => setTimeout(resolve, 5));
@@ -136,5 +144,60 @@ describe('Game Controller', () => {
         expect(Number.isFinite(lm.y)).toBe(true);
         expect(Number.isFinite(csm.x)).toBe(true);
         expect(Number.isFinite(csm.y)).toBe(true);
+    });
+
+    it('initializes in campaign_start state', () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        expect(ctrl.getGameState()).toBe('campaign_start');
+    });
+
+    it('transitions from campaign_start to playing on startDay', () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        expect(ctrl.getGameState()).toBe('campaign_start');
+        ctrl.startDay();
+        expect(ctrl.getGameState()).toBe('playing');
+    });
+
+    it('exposes campaign and mission config', () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        const campaign = ctrl.getCampaign();
+        expect(campaign).toBeTruthy();
+        expect(campaign.day).toBe(1);
+        const config = ctrl.getMissionConfig();
+        expect(config).toBeTruthy();
+        expect(config.startingFuel).toBeDefined();
+    });
+
+    it('starts new campaign and resets to day 1', () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        ctrl.newCampaign();
+        expect(ctrl.getCampaign().day).toBe(1);
+        expect(ctrl.getGameState()).toBe('campaign_start');
+    });
+
+    it('configures LM and CSM from campaign on startDay', () => {
+        const ctrl = createGameController();
+        ctrl.init();
+        ctrl.startDay();
+        const lm = ctrl.getLM();
+        const csm = ctrl.getCSM();
+        expect(lm.fuel).toBeDefined();
+        expect(csm.speed).toBeDefined();
+    });
+
+    it('keeps achievement and campaign saves separate', () => {
+        localStorage.removeItem('apolloAchievements');
+        localStorage.removeItem('apolloCampaign');
+        const c = createDefaultCampaign();
+        c.day = 7;
+        saveCampaign(c);
+        const achievements = loadAchievements();
+        expect(achievements.totalDockings).toBe(0);
+        const campaign = loadCampaign();
+        expect(campaign.day).toBe(7);
     });
 });
