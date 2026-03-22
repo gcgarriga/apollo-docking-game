@@ -261,7 +261,22 @@
             <strong>Standard Conditions</strong><br>No special conditions today.
         </div>
         <p class="instructions">Press SPACE to Begin Mission</p>
-        <p style="font-size: 10px; color: #555; margin-top: 15px; cursor: pointer;" onclick="document.dispatchEvent(new CustomEvent('newCampaign'))">[ New Campaign ]</p>
+        <button
+            id="new-campaign-button"
+            type="button"
+            style="font-size: 10px; color: #555; margin-top: 15px; cursor: pointer; background: none; border: none; padding: 0; font-family: inherit;">
+            [ New Campaign ]
+        </button>
+        <script>
+            (function () {
+                var btn = document.getElementById('new-campaign-button');
+                if (btn) {
+                    btn.addEventListener('click', function () {
+                        document.dispatchEvent(new CustomEvent('newCampaign'));
+                    });
+                }
+            })();
+        </script>
     </div>
 
     <div id="pause-overlay">
