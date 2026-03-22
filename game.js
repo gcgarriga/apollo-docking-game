@@ -1197,7 +1197,17 @@ export function createGameController(options = {}) {
         if (campaignSupplies) campaignSupplies.innerText = `${'█'.repeat(localCampaign.supplies)}${'░'.repeat(CAMPAIGN_MAX_SUPPLIES - localCampaign.supplies)} ${localCampaign.supplies}`;
 
         if (campaignModifier && localCampaign.activeModifier) {
-            campaignModifier.innerHTML = `<strong>${localCampaign.activeModifier.name}</strong><br>${localCampaign.activeModifier.description}`;
+            // Build content safely without using innerHTML to avoid DOM injection/XSS.
+            while (campaignModifier.firstChild) {
+                campaignModifier.removeChild(campaignModifier.firstChild);
+            }
+            const titleElement = document.createElement('strong');
+            titleElement.textContent = localCampaign.activeModifier.name;
+            campaignModifier.appendChild(titleElement);
+            campaignModifier.appendChild(document.createElement('br'));
+            campaignModifier.appendChild(
+                document.createTextNode(localCampaign.activeModifier.description)
+            );
         }
 
         campaignStartOverlay.style.display = 'block';
