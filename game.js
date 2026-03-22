@@ -1314,7 +1314,6 @@ export function createGameController(options = {}) {
                     relVx, relVy, score
                 };
                 const preview = resolveCampaignDay(localCampaign, previewOutcome);
-                const entry = preview.logEntry;
                 msgDetail.innerText += `\n\n─── Day ${localCampaign.day} Summary ───`;
                 msgDetail.innerText += `\nIntegrity: ${localCampaign.integrity}% → ${preview.campaign.integrity}%`;
                 msgDetail.innerText += `\nFuel Budget: ${localCampaign.fuelBudget}% → ${preview.campaign.fuelBudget}%`;
