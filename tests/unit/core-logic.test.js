@@ -273,11 +273,27 @@ describe('Campaign day resolution', () => {
         const outcome = { success: true, type: 'docking_success', fuelRemaining: 60 };
         const result = resolveCampaignDay(c, outcome);
         expect(result.campaign.day).toBe(2);
-        expect(result.campaign.integrity).toBeGreaterThan(90);
+        // integrity: 90 + 5 (success) + 5 (auto-repair) = 100
+        expect(result.campaign.integrity).toBe(100);
         expect(result.campaign.fuelBudget).toBeGreaterThan(90);
-        expect(result.campaign.supplies).toBe(3);
+        // supplies: 2 + 1 (success) - 1 (auto-repair) = 2
+        expect(result.campaign.supplies).toBe(2);
         expect(result.campaign.streak).toBe(1);
         expect(result.logEntry.outcome).toBe('success');
+        expect(result.logEntry.repairDelta).toBe(5);
+    });
+
+    it('does not consume supplies for repair when integrity is full', () => {
+        const c = createDefaultCampaign();
+        c.integrity = 100;
+        c.supplies = 3;
+        c.activeModifier = CAMPAIGN_MODIFIERS.find(m => m.id === 'normal');
+        const outcome = { success: true, type: 'docking_success', fuelRemaining: 60 };
+        const result = resolveCampaignDay(c, outcome);
+        // integrity already at 100 + 5 success = capped at 100, no auto-repair triggered
+        // supplies: 3 + 1 (success) = 4, no repair consumption
+        expect(result.campaign.supplies).toBe(4);
+        expect(result.logEntry.repairDelta).toBeUndefined();
     });
 
     it('applies rough failure penalties', () => {

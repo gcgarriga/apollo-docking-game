@@ -344,6 +344,8 @@ export function resolveCampaignDay(campaign, missionOutcome) {
     if (updated.supplies > 0 && updated.integrity < 100) {
         const repairAmount = Math.min(CAMPAIGN_INTEGRITY_PER_SUPPLY, 100 - updated.integrity);
         updated.integrity += repairAmount;
+        updated.supplies -= 1;
+        logEntry.repairDelta = repairAmount;
     }
 
     // Advance day
@@ -352,7 +354,7 @@ export function resolveCampaignDay(campaign, missionOutcome) {
     // Select modifier for next day
     updated.activeModifier = selectCampaignModifier(updated);
 
-    // Append log
+    // Append log (after repair so logEntry includes repairDelta)
     updated.missionLog = appendMissionLog(campaign.missionLog, logEntry);
 
     return { campaign: updated, logEntry };
