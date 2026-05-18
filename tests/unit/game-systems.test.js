@@ -50,7 +50,7 @@ describe('Particle system', () => {
 
 describe('Audio system', () => {
     beforeEach(() => {
-        const MockAudioContext = vi.fn(() => createAudioContextMock());
+        const MockAudioContext = vi.fn(function () { return createAudioContextMock(); });
         // Ensure initAudio can construct an AudioContext in the test environment
         globalThis.AudioContext = MockAudioContext;
         globalThis.webkitAudioContext = MockAudioContext;
