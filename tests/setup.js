@@ -138,8 +138,9 @@ export function createAudioContextMock() {
     };
 }
 
-// Global AudioContext mock
-globalThis.AudioContext = vi.fn(() => createAudioContextMock());
+// Global AudioContext mock. Use a regular function (not arrow) so callers can
+// invoke it with `new` — vitest 4's vi.fn no longer wraps arrow impls as constructors.
+globalThis.AudioContext = vi.fn(function AudioContextMock() { return createAudioContextMock(); });
 globalThis.webkitAudioContext = globalThis.AudioContext;
 
 // ===== requestAnimationFrame Mock =====
