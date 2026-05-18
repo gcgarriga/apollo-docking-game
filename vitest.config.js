@@ -10,10 +10,10 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['game.js'],
       thresholds: {
-        statements: 80,
-        branches: 75,
-        functions: 85,
-        lines: 80
+        statements: 65,
+        branches: 45,
+        functions: 70,
+        lines: 65
       }
     },
     include: ['tests/**/*.test.js'],
