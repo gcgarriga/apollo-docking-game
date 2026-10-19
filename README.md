@@ -57,8 +57,9 @@ Vanilla JavaScript with zero runtime dependencies. No build step.
 ## Development
 
 Use Node.js 24.15.0 (the CI version in `.nvmrc`) and its bundled npm.
-Node.js 22.13+ (22.x), 24.x, and 26+ are supported; Node.js 20 is no longer
-supported by the Vitest 5 development tooling. The browser game is unchanged.
+Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), and 26+ are supported; Node.js 20 is
+no longer supported by the Vitest 5 and jsdom 30 development tooling.
+The browser game is unchanged.
 
 ```
 nvm use            # if using nvm
