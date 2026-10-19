@@ -56,11 +56,21 @@ Vanilla JavaScript with zero runtime dependencies. No build step.
 
 ## Development
 
+Use Node.js 24.15.0 (the CI version in `.nvmrc`) and its bundled npm.
+Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), and 26+ are supported; Node.js 20 is
+no longer supported by the Vitest 5 and jsdom 30 development tooling.
+The browser game is unchanged.
+
 ```
-npm install
+nvm use            # if using nvm
+npm ci
 npm test            # run all tests (vitest)
 npm run test:watch  # re-run on file changes
+npm run test:coverage # run tests and enforce coverage thresholds (also used by CI)
 ```
+
+Update `vitest` and `@vitest/coverage-v8` together: the coverage provider
+requires an exactly matching Vitest version. Dependabot groups these updates.
 
 ### Test Coverage
 
